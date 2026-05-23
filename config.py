@@ -11,7 +11,7 @@ CHATWOOT_BOT_TOKEN = os.getenv("CHATWOOT_BOT_TOKEN", "")  # Agent Bot token (si 
 # --- Claude API ---
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 AI_MODEL = os.getenv("AI_MODEL", "claude-sonnet-4-20250514")
-AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "300"))  # Respuestas cortas
+AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "400"))  # Respuestas cortas + JSON cita
 
 # --- Redis (estado de conversacion) ---
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
