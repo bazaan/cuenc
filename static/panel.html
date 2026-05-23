@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panel de Citas — Clínica Respira Vida</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:wght@600;700&display=swap');
+
+  :root {
+    --bg: #f8f9fc;
+    --card: #ffffff;
+    --primary: #1a6b5a;
+    --primary-light: #e8f5f0;
+    --primary-dark: #0f4a3e;
+    --accent: #e8913a;
+    --accent-light: #fff4e8;
+    --text: #1a1d23;
+    --text-secondary: #6b7280;
+    --border: #e5e7eb;
+    --danger: #dc2626;
+    --danger-light: #fef2f2;
+    --success: #059669;
+    --success-light: #ecfdf5;
+    --warning: #d97706;
+    --warning-light: #fffbeb;
+    --neutral: #6b7280;
+    --neutral-light: #f3f4f6;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-lg: 0 4px 12px rgba(0,0,0,0.08);
+    --radius: 12px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'DM Sans', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* ── Header ── */
+  .header {
+    background: var(--primary-dark);
+    color: white;
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+  .header-left { display: flex; align-items: center; gap: 14px; }
+  .header-logo {
+    width: 42px; height: 42px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+  }
+  .header h1 {
+    font-family: 'Fraunces', serif;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+  .header p { font-size: 13px; opacity: 0.75; margin-top: 1px; }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  .date-nav {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,0.12);
+    border-radius: 10px;
+    padding: 6px 8px;
+  }
+  .date-nav button {
+    background: none; border: none; color: white; cursor: pointer;
+    width: 32px; height: 32px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; transition: background 0.15s;
+  }
+  .date-nav button:hover { background: rgba(255,255,255,0.15); }
+  .date-nav input[type="date"] {
+    background: transparent; border: none; color: white;
+    font-family: inherit; font-size: 14px; font-weight: 600;
+    cursor: pointer; padding: 4px 8px;
+  }
+  .date-nav input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+  .btn-refresh {
+    background: rgba(255,255,255,0.12); border: none; color: white;
+    width: 38px; height: 38px; border-radius: 10px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; transition: all 0.2s;
+  }
+  .btn-refresh:hover { background: rgba(255,255,255,0.2); }
+  .btn-refresh.spinning { animation: spin 0.6s ease; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+  /* ── Stats ── */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    padding: 20px 24px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .stat-card {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border);
+  }
+  .stat-card .label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); }
+  .stat-card .value { font-family: 'Fraunces', serif; font-size: 32px; font-weight: 700; margin-top: 4px; }
+  .stat-card.total .value { color: var(--primary); }
+  .stat-card.pending .value { color: var(--accent); }
+  .stat-card.confirmed .value { color: var(--success); }
+
+  /* ── Table ── */
+  .table-container {
+    padding: 0 24px 40px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .table-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .table-header h2 { font-family: 'Fraunces', serif; font-size: 18px; }
+  .table-header .count {
+    background: var(--primary-light);
+    color: var(--primary);
+    font-size: 12px; font-weight: 700;
+    padding: 4px 10px; border-radius: 20px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  thead th {
+    background: var(--bg);
+    padding: 12px 16px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-secondary);
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  tbody td {
+    padding: 14px 16px;
+    font-size: 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: #fafbfd; }
+
+  .hora-cell {
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--primary-dark);
+    white-space: nowrap;
+  }
+  .nombre-cell { font-weight: 600; }
+  .telefono-cell a {
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .telefono-cell a:hover { text-decoration: underline; }
+  .canal-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .canal-whatsapp { background: #dcfce7; color: #166534; }
+  .canal-instagram { background: #fce7f3; color: #9d174d; }
+  .canal-messenger { background: #dbeafe; color: #1e40af; }
+  .canal-tiktok { background: #f3e8ff; color: #6b21a8; }
+  .canal-web { background: var(--neutral-light); color: var(--neutral); }
+
+  /* Status badges */
+  .status-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: default;
+  }
+  .status-pendiente { background: var(--warning-light); color: var(--warning); }
+  .status-confirmada { background: var(--success-light); color: var(--success); }
+  .status-cancelada { background: var(--danger-light); color: var(--danger); }
+  .status-no_contesto { background: var(--neutral-light); color: var(--neutral); }
+  .status-atendida { background: var(--primary-light); color: var(--primary); }
+
+  /* Action buttons */
+  .actions { display: flex; gap: 6px; }
+  .btn-action {
+    border: none;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: inherit;
+  }
+  .btn-confirm { background: var(--success-light); color: var(--success); }
+  .btn-confirm:hover { background: #d1fae5; }
+  .btn-cancel { background: var(--danger-light); color: var(--danger); }
+  .btn-cancel:hover { background: #fee2e2; }
+  .btn-noans { background: var(--neutral-light); color: var(--neutral); }
+  .btn-noans:hover { background: #e5e7eb; }
+  .btn-call {
+    background: var(--primary);
+    color: white;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    text-decoration: none;
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    transition: background 0.15s;
+  }
+  .btn-call:hover { background: var(--primary-dark); }
+
+  /* Empty state */
+  .empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-secondary);
+  }
+  .empty-icon { font-size: 48px; margin-bottom: 12px; }
+  .empty h3 { font-family: 'Fraunces', serif; font-size: 18px; color: var(--text); margin-bottom: 6px; }
+  .empty p { font-size: 14px; }
+
+  /* Loading */
+  .loading {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-secondary);
+    font-size: 14px;
+  }
+
+  /* Mobile */
+  @media (max-width: 768px) {
+    .header { flex-direction: column; gap: 12px; align-items: flex-start; }
+    .stats { grid-template-columns: repeat(3, 1fr); padding: 16px; gap: 8px; }
+    .stat-card { padding: 12px; }
+    .stat-card .value { font-size: 24px; }
+    .table-container { padding: 0 12px 30px; }
+
+    /* Card view on mobile */
+    table, thead, tbody, th, td, tr { display: block; }
+    thead { display: none; }
+    tbody tr {
+      background: var(--card);
+      border-radius: var(--radius);
+      margin-bottom: 10px;
+      padding: 14px 16px;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
+    }
+    tbody td {
+      padding: 4px 0;
+      border: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    tbody td::before {
+      content: attr(data-label);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+      margin-right: 12px;
+    }
+    .actions { justify-content: flex-end; flex-wrap: wrap; margin-top: 8px; }
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--primary-dark);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: var(--shadow-lg);
+    transform: translateY(80px);
+    opacity: 0;
+    transition: all 0.3s ease;
+    z-index: 100;
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-left">
+    <div class="header-logo">&#129729;</div>
+    <div>
+      <h1>Citas del Dia</h1>
+      <p>Clinica Respira Vida — Dr. Hebert Cuenca</p>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="date-nav">
+      <button onclick="cambiarDia(-1)" title="Dia anterior">&#8249;</button>
+      <input type="date" id="datePicker" onchange="cargarCitas(this.value)">
+      <button onclick="cambiarDia(1)" title="Dia siguiente">&#8250;</button>
+    </div>
+    <button class="btn-refresh" onclick="refresh()" id="btnRefresh" title="Actualizar">&#8635;</button>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="stats">
+  <div class="stat-card total">
+    <div class="label">Total Citas</div>
+    <div class="value" id="statTotal">-</div>
+  </div>
+  <div class="stat-card pending">
+    <div class="label">Pendientes</div>
+    <div class="value" id="statPendientes">-</div>
+  </div>
+  <div class="stat-card confirmed">
+    <div class="label">Confirmadas</div>
+    <div class="value" id="statConfirmadas">-</div>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="table-container">
+  <div class="table-header">
+    <h2>Agenda</h2>
+    <span class="count" id="countBadge">0 citas</span>
+  </div>
+  <div id="tableWrapper">
+    <div class="loading">Cargando citas...</div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+const API = window.location.origin + '/api';
+let fechaActual = new Date().toISOString().split('T')[0];
+
+// Init
+document.getElementById('datePicker').value = fechaActual;
+cargarCitas(fechaActual);
+
+// Auto-refresh cada 30s
+setInterval(() => cargarCitas(fechaActual, true), 30000);
+
+function cambiarDia(delta) {
+  const d = new Date(fechaActual);
+  d.setDate(d.getDate() + delta);
+  fechaActual = d.toISOString().split('T')[0];
+  document.getElementById('datePicker').value = fechaActual;
+  cargarCitas(fechaActual);
+}
+
+function refresh() {
+  const btn = document.getElementById('btnRefresh');
+  btn.classList.add('spinning');
+  cargarCitas(fechaActual);
+  setTimeout(() => btn.classList.remove('spinning'), 600);
+}
+
+async function cargarCitas(fecha, silent) {
+  fechaActual = fecha;
+  if (!silent) document.getElementById('tableWrapper').innerHTML = '<div class="loading">Cargando...</div>';
+
+  try {
+    const resp = await fetch(`${API}/citas/${fecha}`);
+    const data = await resp.json();
+    renderStats(data.stats);
+    renderTable(data.citas);
+  } catch (e) {
+    if (!silent) {
+      document.getElementById('tableWrapper').innerHTML =
+        '<div class="empty"><div class="empty-icon">&#9888;</div><h3>Error de conexion</h3><p>No se pudo conectar con el servidor</p></div>';
+    }
+  }
+}
+
+function renderStats(stats) {
+  document.getElementById('statTotal').textContent = stats.total || 0;
+  document.getElementById('statPendientes').textContent = stats.pendientes || 0;
+  document.getElementById('statConfirmadas').textContent = stats.confirmadas || 0;
+  document.getElementById('countBadge').textContent = `${stats.total || 0} citas`;
+}
+
+function renderTable(citas) {
+  const wrapper = document.getElementById('tableWrapper');
+
+  if (!citas || citas.length === 0) {
+    wrapper.innerHTML = `
+      <div class="empty">
+        <div class="empty-icon">&#128197;</div>
+        <h3>Sin citas para este dia</h3>
+        <p>Las citas agendadas por el agente apareceran aqui automaticamente</p>
+      </div>`;
+    return;
+  }
+
+  const rows = citas.map(c => {
+    const hora = formatHora(c.hora);
+    const canal = c.canal || 'whatsapp';
+    const estado = c.estado || 'pendiente';
+    const tel = c.telefono || '';
+    const telLink = tel.replace(/\D/g, '');
+
+    return `
+    <tr>
+      <td data-label="Hora" class="hora-cell">${hora}</td>
+      <td data-label="Paciente" class="nombre-cell">${esc(c.nombre_paciente)}</td>
+      <td data-label="Telefono" class="telefono-cell">
+        <a href="tel:${telLink}">&#9742; ${formatTel(tel)}</a>
+      </td>
+      <td data-label="Motivo">${esc(c.motivo || '-')}</td>
+      <td data-label="Canal"><span class="canal-badge canal-${canal}">${canal}</span></td>
+      <td data-label="Estado"><span class="status-badge status-${estado}">${estadoLabel(estado)}</span></td>
+      <td data-label="Acciones">
+        <div class="actions">
+          <a href="https://wa.me/${telLink.length > 9 ? telLink : '51' + telLink}" target="_blank" class="btn-call">WA</a>
+          ${estado === 'pendiente' ? `
+            <button class="btn-action btn-confirm" onclick="cambiarEstado(${c.id}, 'confirmada')">Confirmar</button>
+            <button class="btn-action btn-noans" onclick="cambiarEstado(${c.id}, 'no_contesto')">No contesto</button>
+            <button class="btn-action btn-cancel" onclick="cambiarEstado(${c.id}, 'cancelada')">Cancelar</button>
+          ` : estado === 'confirmada' ? `
+            <button class="btn-action btn-confirm" onclick="cambiarEstado(${c.id}, 'atendida')">Atendida</button>
+            <button class="btn-action btn-cancel" onclick="cambiarEstado(${c.id}, 'cancelada')">Cancelar</button>
+          ` : ''}
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  wrapper.innerHTML = `
+    <table>
+      <thead><tr>
+        <th>Hora</th><th>Paciente</th><th>Telefono</th><th>Motivo</th><th>Canal</th><th>Estado</th><th>Acciones</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function cambiarEstado(id, estado) {
+  try {
+    await fetch(`${API}/citas/${id}/estado`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ estado }),
+    });
+    showToast(`Cita #${id} marcada como ${estadoLabel(estado)}`);
+    cargarCitas(fechaActual);
+  } catch (e) {
+    showToast('Error al actualizar');
+  }
+}
+
+function formatHora(h) {
+  if (!h) return '-';
+  // h puede ser "HH:MM:SS" o "HH:MM"
+  const parts = h.split(':');
+  let hr = parseInt(parts[0]);
+  const min = parts[1];
+  const ampm = hr >= 12 ? 'PM' : 'AM';
+  if (hr > 12) hr -= 12;
+  if (hr === 0) hr = 12;
+  return `${hr}:${min} ${ampm}`;
+}
+
+function formatTel(t) {
+  if (!t) return '-';
+  const digits = t.replace(/\D/g, '');
+  if (digits.length === 9) return digits.replace(/(\d{3})(\d{3})(\d{3})/, '$1 $2 $3');
+  return t;
+}
+
+function estadoLabel(e) {
+  const m = { pendiente: 'Pendiente', confirmada: 'Confirmada', cancelada: 'Cancelada', no_contesto: 'No contesto', atendida: 'Atendida' };
+  return m[e] || e;
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+</script>
+</body>
+</html>

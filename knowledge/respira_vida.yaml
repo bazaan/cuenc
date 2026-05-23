@@ -1,0 +1,40 @@
+clinica:
+  nombre: "Clínica Respira Vida"
+  especialidad: "Neumología y Alergias Respiratorias"
+  doctor: "Dr. Hebert Cuenca"
+  titulo: "Neumólogo"
+  direccion: "Av. Arequipa 2050, Lince, Lima (altura Centro Comercial Risso)"
+  horario: "Lunes a Sábado de 8:30am a 6:00pm"
+  citas_cada: "15 minutos"
+
+precios:
+  consulta: "S/50.00"
+  pruebas_lab: "S/100 a S/300 (aproximado por prueba)"
+  panel_alergias: "S/170 (31 alérgenos + IgE total)"
+  observacion_laboral: "S/50"
+
+pagos:
+  metodos: "Efectivo, Yape, tarjetas y transferencias"
+  nota: "El pago se realiza presencialmente en la clínica"
+
+servicios:
+  atiende_ninos: "Sí, desde 6 meses de nacido. No es exclusivamente pediatra."
+  alergias: "Solo alergias respiratorias. No tratamos alergias de piel."
+  panel_alergias_requisitos:
+    - "Suspender medicamentos al menos 3 días antes"
+    - "Contar con orden médica"
+    - "Paciente no menor a 5 años"
+
+no_realizamos:
+  - "Prick Test (pero tenemos panel de alergias más completo)"
+  - "Descarte de tuberculosis"
+  - "Atención de pacientes TBC (normativa MINSA: MINSA o EsSalud)"
+  - "Consultas a domicilio"
+  - "Atención de gestantes (derivar a su centro de control)"
+  - "Alergias de piel"
+
+reglas:
+  - "El paciente DEBE asistir presencialmente, no puede ir un familiar con resultados"
+  - "Al ofrecer horarios, mostrar solo 3 opciones dispersas"
+  - "No dar diagnósticos ni recomendaciones médicas"
+  - "Costo de tratamiento varía por paciente, el doctor lo determina en consulta"

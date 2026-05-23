@@ -1,0 +1,53 @@
+version: "3.8"
+
+services:
+  agent:
+    build: .
+    restart: always
+    ports:
+      - "8090:8090"
+    environment:
+      - CHATWOOT_BASE_URL=${CHATWOOT_BASE_URL:-https://clinicas.alefcompany.online}
+      - CHATWOOT_API_TOKEN=${CHATWOOT_API_TOKEN}
+      - CHATWOOT_ACCOUNT_ID=${CHATWOOT_ACCOUNT_ID:-1}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - AI_MODEL=${AI_MODEL:-claude-sonnet-4-20250514}
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://docc:docc_s3cur3@postgres:5432/docc_agent
+      - PORT=8090
+      - LOG_LEVEL=INFO
+      - CLINICA_TELEFONO=${CLINICA_TELEFONO:-}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - docc_net
+
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      - POSTGRES_DB=docc_agent
+      - POSTGRES_USER=docc
+      - POSTGRES_PASSWORD=docc_s3cur3
+    volumes:
+      - docc_pgdata:/var/lib/postgresql/data
+    networks:
+      - docc_net
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb"]
+    volumes:
+      - docc_redis:/data
+    networks:
+      - docc_net
+
+volumes:
+  docc_pgdata:
+  docc_redis:
+
+networks:
+  docc_net:
+    driver: bridge
