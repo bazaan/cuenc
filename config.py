@@ -8,10 +8,13 @@ CHATWOOT_API_TOKEN = os.getenv("CHATWOOT_API_TOKEN", "")
 CHATWOOT_ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID", "1")
 CHATWOOT_BOT_TOKEN = os.getenv("CHATWOOT_BOT_TOKEN", "")  # Agent Bot token (si se usa)
 
+# --- OpenAI (Whisper transcripcion audio) ---
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
 # --- Claude API ---
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 AI_MODEL = os.getenv("AI_MODEL", "claude-sonnet-4-20250514")
-AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "400"))  # Respuestas cortas + JSON cita
+AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "250"))  # Respuestas cortas + JSON cita
 
 # --- Redis (estado de conversacion) ---
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -23,7 +26,14 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://docc:docc_s3cur3@localhos
 # --- App ---
 PORT = int(os.getenv("PORT", "8090"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+JWT_SECRET = os.getenv("JWT_SECRET", "docc_jwt_s3cr3t_k3y_2024")
+JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "72"))
 TIMEZONE = "America/Lima"
+
+# --- Google Calendar ---
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://dashboard.respiravida.online/api/gcal/callback")
 
 # --- Clinica ---
 CLINICA_NOMBRE = "Clínica Respira Vida"
@@ -32,6 +42,10 @@ DOCTOR_ESPECIALIDAD = "Neumólogo"
 CLINICA_TELEFONO = os.getenv("CLINICA_TELEFONO", "")  # Para derivar llamadas
 CLINICA_DIRECCION = "Av. Arequipa 2050, Lince, Lima (altura CC Risso)"
 HORARIO_INICIO = "08:30"
-HORARIO_FIN = "18:00"
-INTERVALO_CITAS_MIN = 15
+HORARIO_FIN = "16:00"
+HORARIO_FIN_SABADO = "12:00"
+INTERVALO_CITAS_MIN = 10
 SLOTS_VISIBLES = 3  # Mostrar solo 3 horarios (pedido del doctor)
+
+# --- Handoff ---
+CHATWOOT_TEAM_ID = int(os.getenv("CHATWOOT_TEAM_ID", "0"))  # Team "Asesoras" en Chatwoot para handoff

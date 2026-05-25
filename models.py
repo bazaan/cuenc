@@ -56,3 +56,5 @@ class ConversationState(BaseModel):
 
     # Historial para contexto IA (ultimos N mensajes)
     messages: list[dict] = []
+    cita_creada: bool = False
+    handoff: bool = False  # True = supervisor tomó control, IA no responde

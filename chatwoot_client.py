@@ -49,3 +49,27 @@ async def add_label(conversation_id: int, label: str):
         if label not in current:
             current.append(label)
             await client.post(url, json={"labels": current}, headers=HEADERS)
+
+
+async def assign_team(conversation_id: int, team_id: int):
+    """Asigna una conversacion a un team en Chatwoot."""
+    url = f"{BASE}/conversations/{conversation_id}/assignments"
+    payload = {"team_id": team_id}
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post(url, json=payload, headers=HEADERS)
+        if resp.status_code >= 400:
+            log.error(f"Chatwoot assign team error {resp.status_code}: {resp.text}")
+            return False
+        log.info(f"Conv {conversation_id} asignada a team {team_id}")
+        return True
+
+
+async def toggle_status(conversation_id: int, status: str = "open"):
+    """Cambia el status de una conversacion (open, pending, resolved, snoozed)."""
+    url = f"{BASE}/conversations/{conversation_id}/toggle_status"
+    payload = {"status": status}
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post(url, json=payload, headers=HEADERS)
+        if resp.status_code >= 400:
+            log.error(f"Chatwoot toggle status error {resp.status_code}: {resp.text}")
+        return resp.status_code < 400
