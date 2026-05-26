@@ -81,6 +81,12 @@ async def init_db():
             CREATE UNIQUE INDEX IF NOT EXISTS idx_seguimientos_conv
                 ON seguimientos(conversation_id) WHERE NOT cerrado;
 
+            -- Columna interesado: solo enviar seguimiento si paciente mostró interés
+            DO $$ BEGIN
+                ALTER TABLE seguimientos ADD COLUMN IF NOT EXISTS interesado BOOLEAN DEFAULT FALSE;
+            EXCEPTION WHEN OTHERS THEN NULL;
+            END $$;
+
             -- Google Calendar tokens
             CREATE TABLE IF NOT EXISTS gcal_tokens (
                 id SERIAL PRIMARY KEY,
@@ -355,7 +361,7 @@ async def get_hilo_conversacion(conversation_id: int) -> list[dict]:
         return [dict(r) for r in rows]
 
 
-async def upsert_seguimiento(conversation_id: int, contact_name: str, cita_creada: bool = False):
+async def upsert_seguimiento(conversation_id: int, contact_name: str, cita_creada: bool = False, interesado: bool = False):
     """Actualiza o crea el tracking de seguimiento para una conversacion."""
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -369,28 +375,30 @@ async def upsert_seguimiento(conversation_id: int, contact_name: str, cita_cread
 
         # Upsert: actualizar timestamp o crear nuevo
         existing = await conn.fetchrow("""
-            SELECT id FROM seguimientos
+            SELECT id, interesado FROM seguimientos
             WHERE conversation_id = $1 AND NOT cerrado
         """, conversation_id)
 
         if existing:
+            # Si ya estaba marcado como interesado, no quitarlo
+            new_interesado = existing["interesado"] or interesado
             await conn.execute("""
-                UPDATE seguimientos SET ultimo_mensaje_at = NOW(), contact_name = $2
+                UPDATE seguimientos SET ultimo_mensaje_at = NOW(), contact_name = $2, interesado = $4
                 WHERE id = $3
-            """, conversation_id, contact_name, existing["id"])
+            """, conversation_id, contact_name, existing["id"], new_interesado)
         else:
             await conn.execute("""
-                INSERT INTO seguimientos (conversation_id, contact_name, ultimo_mensaje_at)
-                VALUES ($1, $2, NOW())
-            """, conversation_id, contact_name)
+                INSERT INTO seguimientos (conversation_id, contact_name, ultimo_mensaje_at, interesado)
+                VALUES ($1, $2, NOW(), $3)
+            """, conversation_id, contact_name, interesado)
 
 
 async def get_seguimientos_pendientes() -> list[dict]:
     """
     Retorna conversaciones que necesitan seguimiento.
-    - Seguimiento 1: >= 2 horas sin respuesta, aun no enviado
-    - Seguimiento 2: >= 8 horas sin respuesta, seguimiento 1 ya enviado
+    - Solo 1 seguimiento: >= 2 horas sin respuesta, aun no enviado
     - Dentro de ventana 24h de Meta
+    - Solo si el paciente mostró interés (interesado = TRUE)
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -398,31 +406,33 @@ async def get_seguimientos_pendientes() -> list[dict]:
             SELECT * FROM seguimientos
             WHERE NOT cerrado
               AND NOT cita_creada
+              AND interesado = TRUE
+              AND seguimiento_num = 0
               AND ultimo_mensaje_at > NOW() - INTERVAL '24 hours'
-              AND (
-                  (seguimiento_num = 0 AND ultimo_mensaje_at < NOW() - INTERVAL '2 hours')
-                  OR
-                  (seguimiento_num = 1 AND seguimiento1_at < NOW() - INTERVAL '6 hours')
-              )
+              AND ultimo_mensaje_at < NOW() - INTERVAL '2 hours'
             ORDER BY ultimo_mensaje_at ASC
         """)
         return [dict(r) for r in rows]
 
 
 async def marcar_seguimiento_enviado(seguimiento_id: int, num: int):
-    """Marca un seguimiento como enviado."""
+    """Marca un seguimiento como enviado y cierra (solo 1 seguimiento)."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        if num == 1:
-            await conn.execute("""
-                UPDATE seguimientos SET seguimiento_num = 1, seguimiento1_at = NOW()
-                WHERE id = $1
-            """, seguimiento_id)
-        elif num == 2:
-            await conn.execute("""
-                UPDATE seguimientos SET seguimiento_num = 2, seguimiento2_at = NOW(), cerrado = TRUE
-                WHERE id = $1
-            """, seguimiento_id)
+        await conn.execute("""
+            UPDATE seguimientos SET seguimiento_num = 1, seguimiento1_at = NOW(), cerrado = TRUE
+            WHERE id = $1
+        """, seguimiento_id)
+
+
+async def cerrar_seguimiento(conversation_id: int):
+    """Cierra seguimiento de una conversación (handoff o cita creada)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE seguimientos SET cerrado = TRUE
+            WHERE conversation_id = $1 AND NOT cerrado
+        """, conversation_id)
 
 
 async def cerrar_seguimientos_expirados():

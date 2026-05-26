@@ -65,9 +65,17 @@ async def _followup_loop():
 
             pendientes = await appointments.get_seguimientos_pendientes()
             for seg in pendientes:
+                conv_id = seg["conversation_id"]
+
+                # Safety net: verificar handoff en Redis antes de enviar
+                state = await get_state(conv_id)
+                if state and (state.handoff or state.cita_creada):
+                    log.info(f"[Seguimiento] Conv {conv_id} en handoff/cita_creada — cerrando seguimiento")
+                    await appointments.cerrar_seguimiento(conv_id)
+                    continue
+
                 num = seg["seguimiento_num"] + 1
                 msg = get_followup_message(num)
-                conv_id = seg["conversation_id"]
 
                 log.info(f"[Seguimiento #{num}] Conv {conv_id} ({seg['contact_name']}): {msg[:60]}")
                 await send_message(conv_id, msg)
@@ -349,6 +357,8 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
             state.cita_creada = True
             state.handoff = True
             log.info(f"[Conv {conversation_id}] HANDOFF automático — cita creada, supervisor toma control")
+            # Cerrar seguimiento para que no reciba follow-ups
+            await appointments.cerrar_seguimiento(conversation_id)
             # Asignar a team en Chatwoot si está configurado
             if config.CHATWOOT_TEAM_ID:
                 await assign_team(conversation_id, config.CHATWOOT_TEAM_ID)
@@ -361,6 +371,8 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
         state.handoff = True
         log.info(f"[Conv {conversation_id}] HANDOFF por IA — motivo: {supervisor_motivo}")
         await add_label(conversation_id, "supervisor")
+        # Cerrar seguimiento para que no reciba follow-ups
+        await appointments.cerrar_seguimiento(conversation_id)
         if config.CHATWOOT_TEAM_ID:
             await assign_team(conversation_id, config.CHATWOOT_TEAM_ID)
         # Nota privada para el equipo
@@ -387,11 +399,17 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
         contact_phone=state.contact_phone or contact_phone or "",
     )
 
+    # Detectar si paciente mostró interés en agendar (para seguimiento)
+    palabras_interes = ["cita", "consulta", "agendar", "reservar", "turno", "horario", "disponib", "mañana", "hoy", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"]
+    msg_lower = combined_message.lower()
+    paciente_interesado = any(p in msg_lower for p in palabras_interes) or bool(fecha_detectada)
+
     # Tracking de seguimiento (resetea timer si usuario responde, cierra si cita creada)
     await appointments.upsert_seguimiento(
         conversation_id=conversation_id,
         contact_name=state.contact_name or contact_name or "",
         cita_creada=bool(cita_data),
+        interesado=paciente_interesado,
     )
 
     # Guardar respuesta en historial (siempre, incluso después de cita)
@@ -854,6 +872,10 @@ async def handoff_conversation(conversation_id: int, request: Request):
 
     action = "ACTIVADO" if activate else "DESACTIVADO"
     log.info(f"[Conv {conversation_id}] Handoff {action} manualmente")
+
+    # Cerrar seguimiento si se activa handoff
+    if activate:
+        await appointments.cerrar_seguimiento(conversation_id)
 
     # Si se activa y hay team configurado, asignar en Chatwoot
     if activate and config.CHATWOOT_TEAM_ID:

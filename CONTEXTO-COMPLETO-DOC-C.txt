@@ -1,0 +1,458 @@
+================================================================================
+PROYECTO DOC C — CLINICA RESPIRA VIDA
+Contexto completo para desarrollo y modificaciones
+Última actualización: 2026-05-25 | Tag actual: v24
+================================================================================
+
+1. QUE ES ESTO
+================================================================================
+
+Agente IA comercial para la Clínica Respira Vida del Dr. Hebert Cuenca
+(neumólogo, Lima, Perú). El agente responde automáticamente por WhatsApp,
+Instagram, TikTok y Messenger via Chatwoot. Su objetivo es dar información
+al paciente y agendar citas rápido, sin fricciones.
+
+Cliente: Dr. Hebert Cuenca
+Equipo del doctor: Ruby (asesora, confirma citas por WA)
+Nuestro rol: Desarrollo y mantenimiento del agente + dashboard
+
+Dashboard: https://dashboard.respiravida.online/dashboard
+Health:    https://dashboard.respiravida.online/health
+Webhook:   https://dashboard.respiravida.online/webhook/chatwoot
+Repo:      https://github.com/bazaan/cuenc.git
+
+
+2. STACK TECNICO
+================================================================================
+
+- FastAPI (Python) — API principal, webhook, dashboard
+- Claude Sonnet 4 (Anthropic API) — Motor IA para respuestas
+- PostgreSQL 16 — Citas, ejecuciones, seguimientos, días bloqueados
+- Redis 7 — Estado de conversación (TTL 1h), handoff flags
+- Chatwoot (Account 16) — Omnicanal (WA, IG, TikTok, Messenger)
+- Docker Swarm — Deploy en VPS 2
+- Whisper + GPT-4o Vision — Transcripción audio + análisis imágenes
+- Google Calendar (OAuth2) — Sincronización de citas (pendiente creds)
+
+
+3. INFRAESTRUCTURA
+================================================================================
+
+VPS 2: 173.249.59.135
+SSH:   ssh root@173.249.59.135
+Build: /root/doc-c-agent/
+
+Stack Docker Swarm: docc_agent (3 servicios)
+  - docc_agent_agent   — FastAPI (puerto 8090)
+  - docc_agent_docc_pg — PostgreSQL 16
+  - docc_agent_docc_redis — Redis 7
+
+Chatwoot: https://chats.alef.company (Account 16)
+  - API Token: xBsW4FE3FCZdZbgXgdjrHfUA
+  - Inboxes: 74 (TikTok), 75 (Instagram), 78 (WhatsApp), 79 (WhatsApp 2)
+  - Webhook ID 12: https://dashboard.respiravida.online/webhook/chatwoot
+
+Variables de entorno (en el docker-compose del swarm):
+  CHATWOOT_BASE_URL=https://chats.alef.company
+  CHATWOOT_API_TOKEN=xBsW4FE3FCZdZbgXgdjrHfUA
+  CHATWOOT_ACCOUNT_ID=16
+  ANTHROPIC_API_KEY=sk-ant-api03-...
+  OPENAI_API_KEY=sk-proj-...
+  AI_MODEL=claude-sonnet-4-20250514
+  AI_MAX_TOKENS=250
+  AI_ENABLED=false  (SE ACTIVA VIA API POST-DEPLOY)
+  REDIS_URL=redis://docc_redis:6379/0
+  DATABASE_URL=postgresql://docc:docc_s3cur3@docc_pg:5432/docc_agent
+  JWT_SECRET=docc_jwt_s3cr3t_k3y_2024
+  CHATWOOT_TEAM_ID=0
+  CLINICA_TELEFONO=pendiente
+
+Usuarios Dashboard:
+  admin / respiravida2024 (admin)
+  nanenafriend13@gmail.com / Huracan126 (staff)
+
+
+4. ARCHIVOS DEL PROYECTO Y QUE HACE CADA UNO
+================================================================================
+
+main.py
+  - Webhook Chatwoot: recibe mensajes, debounce 30s, processing lock
+  - Flujo principal: check IA pausada → check handoff → detectar fecha/hora
+    → obtener slots → Claude genera respuesta → crear cita si [CITA_JSON]
+    → handoff si [SUPERVISOR] → enviar respuesta → registrar ejecución
+  - APIs: citas CRUD, auth JWT, GCal, días bloqueados, handoff, usuarios
+  - Background: _followup_loop cada 15 min (seguimientos)
+  - AI_ENABLED = os.getenv("AI_ENABLED", "false") — default APAGADA
+
+ai_engine.py
+  - SYSTEM_PROMPT: personalidad del agente, reglas, flujo de conversación
+  - generate_response(): llama Claude API con contexto (fecha Lima, slots, historial)
+  - extract_appointment_json(): detecta [CITA_JSON]{...}[/CITA_JSON] en respuesta
+  - extract_supervisor_tag(): detecta [SUPERVISOR]motivo[/SUPERVISOR]
+  - clean_response(): limpia tags internos, convierte **bold** → *bold* para WA
+  - get_followup_message(): mensajes de seguimiento aleatorios
+
+appointments.py
+  - init_db(): crea tablas (citas, ejecuciones, seguimientos, gcal_tokens, dias_bloqueados)
+  - crear_cita(): INSERT con anti-duplicado por conversation_id
+  - generar_slots(): genera horarios cada 10 min, excluye receso 1-2pm
+  - get_slots_disponibles(): filtra por ocupados + GCal busy + días bloqueados
+  - Seguimientos: upsert, pendientes (solo interesados), cerrar, expirar
+  - Días bloqueados: bloquear/desbloquear/listar
+  - GCal tokens: save/get/delete
+
+conversation.py
+  - Estado en Redis con TTL 1h
+  - get_state / save_state / delete_state / add_message
+  - Key: docc:conv:{conversation_id}
+
+models.py
+  - ConversationState: contact info, step, fecha/hora elegida, messages[],
+    cita_creada (bool), handoff (bool)
+  - Cita: nombre, telefono, fecha, hora, motivo, canal, estado, conversation_id
+  - EstadoCita: pendiente, confirmada, cancelada, no_contesto, atendida
+  - Canal: whatsapp, instagram, messenger, tiktok, web
+
+config.py
+  - Variables centralizadas desde env vars
+  - Horarios: 8:30-16:00 (L-V), 8:30-12:00 (Sab), Dom NO
+  - Receso: 1pm-2pm
+  - INTERVALO_CITAS_MIN=10, SLOTS_VISIBLES=3, AI_MAX_TOKENS=250
+
+chatwoot_client.py
+  - send_message(): envía mensaje a conversación (outgoing o private)
+  - add_label(): agrega label (cita_agendada, supervisor)
+  - assign_team(): asigna conversación a team
+  - toggle_status(): cambia status (open, resolved, etc)
+
+transcriber.py
+  - transcribe_audio(): Whisper para audios de WA
+  - describe_image(): GPT-4o Vision para imágenes
+
+gcal.py
+  - Google Calendar: OAuth2, crear/editar/eliminar eventos, colores por estado
+
+auth.py
+  - JWT, bcrypt, usuarios, Google OAuth auto-creation
+
+static/dashboard.html — Panel web completo (login + calendario + agenda)
+static/login.html — Página de login
+
+
+5. FLUJO COMPLETO DEL AGENTE
+================================================================================
+
+PASO 1: Paciente escribe por WA/IG/TikTok
+  ↓
+PASO 2: Chatwoot recibe → webhook POST a /webhook/chatwoot
+  ↓
+PASO 3: Si AI_ENABLED=false → ignorar
+  ↓
+PASO 4: Debounce 30s (acumula mensajes rápidos del mismo paciente)
+  ↓
+PASO 5: Processing lock (evita procesar misma conversación en paralelo)
+  ↓
+PASO 6: Check Redis: ¿handoff activo? → SI: IA no responde, sale
+  ↓
+PASO 7: Detectar fecha/hora en el texto del paciente
+  ↓
+PASO 8: Si hay fecha → obtener slots disponibles:
+         - Generar todos los slots del día (cada 10 min)
+         - Excluir receso 1-2pm
+         - Excluir slots ocupados (citas en BD)
+         - Excluir slots de GCal
+         - Verificar si día está bloqueado → 0 slots
+         - Mostrar solo 3 slots dispersos (SLOTS_VISIBLES)
+  ↓
+PASO 9: Claude genera respuesta con contexto:
+         - Fecha actual en español (Lima timezone)
+         - "Mañana es [día]" (evitar confusión)
+         - Nombre/teléfono del contacto
+         - Slots disponibles para la fecha
+         - Historial (últimos 8 mensajes)
+         - Si cita_creada: "NO repitas handoff"
+  ↓
+PASO 10: Analizar respuesta de Claude:
+         - ¿Tiene [CITA_JSON]? → Crear cita en BD
+           - Anti-duplicado: check conversation_id en BD
+           - Auto-handoff: state.handoff=True, state.cita_creada=True
+           - Cerrar seguimiento
+           - Label "cita_agendada" en Chatwoot
+         - ¿Tiene [SUPERVISOR]? → Handoff a supervisor
+           - state.handoff=True
+           - Cerrar seguimiento
+           - Label "supervisor" + nota privada al equipo
+  ↓
+PASO 11: Limpiar respuesta (quitar tags, **bold** → *bold*)
+  ↓
+PASO 12: Enviar respuesta al paciente via Chatwoot
+  ↓
+PASO 13: Registrar en BD (ejecuciones) + tracking seguimiento
+
+
+6. SISTEMA DE HANDOFF (SUPERVISOR)
+================================================================================
+
+Tres formas de activar handoff:
+
+A) AUTOMATICO (post-cita):
+   - IA crea cita → handoff=true → IA deja de responder
+   - Equipo ve la cita en dashboard, llama y confirma
+   - Label "cita_agendada" en Chatwoot
+
+B) IA DECIDE ([SUPERVISOR]):
+   - Paciente pide hablar con humano, se queja, preguntas médicas complejas
+   - IA incluye [SUPERVISOR]motivo[/SUPERVISOR] al final
+   - handoff=true, nota privada al equipo en Chatwoot
+   - Label "supervisor"
+
+C) MANUAL (API):
+   - POST /api/conversations/{id}/handoff {"activate": true}
+   - Para casos donde el equipo quiere tomar control manualmente
+
+Desactivar handoff (devolver a IA):
+   - POST /api/conversations/{id}/handoff {"activate": false}
+
+Consultar estado:
+   - GET /api/conversations/{id}/handoff
+
+
+7. SISTEMA DE SEGUIMIENTOS
+================================================================================
+
+Mensajes de follow-up automáticos para pacientes que no respondieron.
+
+Reglas actuales (v24):
+- Solo 1 seguimiento (no 2)
+- Solo si el paciente mostró INTERÉS (mencionó cita, consulta, horario, etc)
+- Se envía 2 horas después del último mensaje sin respuesta
+- Dentro de ventana 24h de Meta
+- NO se envía a: pacientes con cita, en handoff, o pasados a supervisor
+- NO se envía fuera de horario (9pm-8am Lima)
+- Background loop cada 15 minutos
+
+Safety net: antes de enviar, verifica en Redis si hay handoff/cita_creada.
+Si encuentra alguno, cierra el seguimiento en BD y no envía.
+
+
+8. DIAS BLOQUEADOS
+================================================================================
+
+El equipo puede marcar días como "llenos" para que la IA no ofrezca horarios.
+
+API:
+  GET    /api/dias-bloqueados              — Lista días bloqueados
+  POST   /api/dias-bloqueados              — {"fecha":"YYYY-MM-DD","motivo":"lleno"}
+  DELETE /api/dias-bloqueados/YYYY-MM-DD   — Desbloquear
+
+Actualmente bloqueados:
+  - 2026-05-25 (domingo)
+  - 2026-05-26 (lunes, agenda llena)
+  - 2026-05-27 (martes, agenda llena)
+
+La IA automáticamente ofrece el siguiente día disponible si el solicitado
+está bloqueado.
+
+
+9. PROMPT DEL AGENTE (REGLAS CLAVE)
+================================================================================
+
+Personalidad:
+- Asistente humano de la Clínica del Dr. Cuenca
+- Especialista en neumología y medicina respiratoria
+- Conversacional, breve (2-3 líneas), cercano, profesional
+- Formato WhatsApp: *bold* (no **bold**), _cursiva_
+
+Saludo:
+"Hola! Gracias por comunicarse con la Clínica del Dr. Cuenca, especialista
+en neumología y medicina respiratoria. ¿En qué le puedo ayudar?"
+
+Flujo:
+1. Si piden info → dar info (consulta S/50, pruebas S/250-300 si enfermedad crónica)
+2. Ofrecer cita UNA SOLA VEZ después de dar info
+3. Si quiere → agendar rápido (no preguntar motivo innecesariamente)
+4. Si no quiere → "Estamos para ayudarle, cuando guste nos escribe"
+5. NO INSISTIR NUNCA
+
+Reglas críticas:
+- Anti-repetición: nunca repetir pregunta ya hecha
+- No dar info médica, no recomendar otros centros
+- Pacientes de provincia: vender al doctor, no rechazar
+- Precio genérico "costos" → solo S/50, no lista completa
+- Después de cita: mensaje de cierre con indicaciones (DNI, 30 min antes, mascarilla)
+- Post-cierre: responder brevemente, no repetir handoff
+
+Tools invisibles:
+- [CITA_JSON]{"nombre","telefono","fecha","hora","motivo"}[/CITA_JSON]
+- [SUPERVISOR]motivo breve[/SUPERVISOR]
+
+Horarios:
+- Lunes a Viernes: 8:30am - 4:00pm
+- Sábados: 8:30am - 12:00pm
+- Domingos: NO
+- Receso: 1:00pm - 2:00pm (no hay slots)
+- Citas cada 10 minutos
+- Solo muestra 3 horarios disponibles (dispersos)
+
+Datos de la clínica:
+- Dr. Hebert Cuenca, Neumólogo, 20+ años
+- Av. Arequipa 2050, Lince, Lima (CC Risso)
+- Consulta: S/50 (se paga después, presencial)
+- Vacuna influenza: S/80
+- Panel alergias: S/170 (31 alérgenos)
+- Pruebas adicionales: S/250-300 (si enfermedad crónica)
+- Pagos: efectivo, Yape, tarjetas, transferencias
+- Atiende niños desde 6 meses
+- NO: Prick Test, TBC, domicilio, gestantes, alergias de piel
+
+
+10. DEPLOY (COMO ACTUALIZAR)
+================================================================================
+
+PASO 1: Editar archivos localmente en doc-c-agent/
+
+PASO 2: Subir al VPS
+  scp archivo.py root@173.249.59.135:/root/doc-c-agent/
+
+PASO 3: Build con tag versionado (NUNCA usar :latest)
+  ssh root@173.249.59.135 "cd /root/doc-c-agent && docker build -t doc-c-agent:vN ."
+
+PASO 4: Update servicio
+  ssh root@173.249.59.135 "docker service update --image doc-c-agent:vN docc_agent_agent"
+
+PASO 5: Verificar logs
+  ssh root@173.249.59.135 "docker logs $(docker ps -q -f name=docc_agent_agent) --tail 10"
+
+PASO 6: Activar IA (SIEMPRE arranca apagada)
+  curl -X POST "https://dashboard.respiravida.online/api/ai/toggle" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer TOKEN" \
+    -d '{"enabled":true}'
+
+  Para obtener el TOKEN:
+  curl -X POST "https://dashboard.respiravida.online/api/auth/login" \
+    -H "Content-Type: application/json" \
+    -d '{"username":"admin","password":"respiravida2024"}'
+
+IMPORTANTE:
+- Docker Swarm cachea tag "latest" — SIEMPRE usar tags versionados (v24, v25...)
+- Cada deploy arranca con AI_ENABLED=false — activar via API cuando esté listo
+- Tag actual: v24
+
+
+11. APIs DISPONIBLES
+================================================================================
+
+CITAS:
+  GET  /api/citas/hoy                    — Citas de hoy
+  GET  /api/citas/{fecha}                — Citas por fecha (YYYY-MM-DD)
+  GET  /api/citas/semana/{fecha}         — Citas de la semana
+  POST /api/citas                        — Crear cita manual (auth)
+  PUT  /api/citas/{id}                   — Editar cita (auth)
+  PATCH /api/citas/{id}/estado           — Cambiar estado
+
+HANDOFF:
+  POST /api/conversations/{id}/handoff   — Activar/desactivar handoff
+  GET  /api/conversations/{id}/handoff   — Estado de handoff
+
+DIAS BLOQUEADOS:
+  GET    /api/dias-bloqueados
+  POST   /api/dias-bloqueados
+  DELETE /api/dias-bloqueados/{fecha}
+
+IA:
+  GET  /api/ai/status                    — Estado de la IA
+  POST /api/ai/toggle                    — Activar/pausar IA (auth)
+
+AUTH:
+  POST /api/auth/login                   — Login (devuelve JWT)
+  GET  /api/auth/me                      — Info usuario actual
+
+GOOGLE CALENDAR:
+  GET  /api/gcal/status                  — Estado conexión
+  GET  /api/gcal/auth                    — URL de autorización (auth)
+  GET  /api/gcal/callback                — OAuth callback
+  GET  /api/gcal/events?desde=&hasta=    — Eventos en rango
+  DELETE /api/gcal/disconnect            — Desconectar (admin)
+
+OTROS:
+  GET  /api/ejecuciones                  — Log de interacciones del agente
+  GET  /api/conversaciones               — Lista conversaciones agrupadas
+  GET  /api/conversaciones/{id}          — Hilo de una conversación
+  GET  /api/stats/hoy                    — Estadísticas del día
+  GET  /api/usuarios                     — Lista usuarios (admin)
+  POST /api/usuarios                     — Crear usuario (admin)
+  DELETE /api/usuarios/{id}              — Eliminar usuario (admin)
+  GET  /health                           — Health check
+
+
+12. PROTECCIONES Y SAFETY NETS
+================================================================================
+
+- AI_ENABLED default false: cada deploy arranca con IA apagada
+- Debounce 30s: acumula mensajes rápidos, no responde a cada uno
+- Processing lock: una conversación no se procesa en paralelo
+- Handoff check: si handoff activo, IA no responde
+- Anti-duplicado citas: Redis (cita_creada flag) + PostgreSQL (conversation_id)
+- Timezone Lima: todas las fechas usan America/Lima (servidor en UTC)
+- Fechas en español: "lunes 26 de mayo" (no "Monday May 26")
+- Receso 1-2pm: no genera slots en ese rango
+- Días bloqueados: equipo puede bloquear días llenos
+- Seguimientos controlados: solo 1, solo si hubo interés, no a handoff/cita
+- WhatsApp markdown: auto-convierte **bold** a *bold*
+- max_tokens 250: respuestas cortas obligatorias
+
+
+13. BUGS RESUELTOS (HISTORIAL)
+================================================================================
+
+- IA respondía con IA pausada: AI_ENABLED se reseteaba a true en deploy.
+  Fix: default "false" desde env var.
+
+- Fechas incorrectas (UTC vs Lima): servidor en UTC, Lima es UTC-5.
+  Fix: todo usa ZoneInfo("America/Lima").
+
+- Días en inglés ("Monday"): strftime daba inglés.
+  Fix: arrays manuales dias_es[], meses_es[].
+
+- IA repetía "¿Cuál es su motivo?": no leía historial.
+  Fix: regla anti-repetición en prompt + historial como contexto.
+
+- Citas duplicadas (3 para mismo paciente): flag Redis no bastaba.
+  Fix: check PostgreSQL por conversation_id antes de INSERT.
+
+- Follow-ups a pacientes con cita/supervisor: no verificaba handoff.
+  Fix: cerrar seguimiento en handoff + safety net en loop.
+
+- DNI vacío colisionaba (dashboard médica): "" conflicto UNIQUE.
+  Fix: migration_v16 (DROP NOT NULL + partial unique index).
+
+
+14. PENDIENTES
+================================================================================
+
+- [ ] Confirmar horario sábado (12pm vs 2pm)
+- [ ] Credenciales Google Cloud (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET)
+- [ ] CLINICA_TELEFONO en env
+- [ ] Botón en dashboard para bloquear/desbloquear días
+- [ ] Botón en dashboard para activar/desactivar handoff por conversación
+- [ ] Métricas: tasa de agendamiento, tiempo promedio
+- [ ] Push cambios v24 a GitHub
+
+
+15. CONTACTO Y ACCESOS
+================================================================================
+
+Dashboard: https://dashboard.respiravida.online/dashboard
+  Login: admin / respiravida2024
+
+Chatwoot: https://chats.alef.company/app/accounts/16/dashboard
+
+VPS: ssh root@173.249.59.135
+  Código: /root/doc-c-agent/
+
+GitHub: https://github.com/bazaan/cuenc.git
+
+================================================================================
+FIN DEL DOCUMENTO
+================================================================================
