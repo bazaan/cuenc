@@ -336,6 +336,39 @@
   .cal-legend-dot.leg-gcal { background:rgba(66,133,244,0.12); border-left:3px solid #4285f4; }
   .cal-legend-dot.leg-closed { background:repeating-linear-gradient(135deg,#f9fafb,#f9fafb 3px,#f3f4f6 3px,#f3f4f6 6px); }
 
+  /* Alertas */
+  .alertas-toolbar {
+    display:flex; align-items:center; gap:12px; margin-bottom:14px;
+  }
+  .alertas-filter {
+    display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text-secondary); cursor:pointer;
+  }
+  .alerta-card {
+    display:flex; align-items:flex-start; gap:14px; padding:14px 16px;
+    background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
+    margin-bottom:8px; box-shadow:var(--shadow); cursor:pointer; transition:all .15s;
+    text-decoration:none; color:inherit;
+  }
+  .alerta-card:hover { border-color:var(--primary); box-shadow:var(--shadow-lg); }
+  .alerta-card.no-leida { border-left:4px solid var(--danger); background:#fffbfb; }
+  .alerta-card.leida { opacity:0.65; }
+  .alerta-icon {
+    width:40px; height:40px; border-radius:10px; display:flex; align-items:center;
+    justify-content:center; font-size:20px; flex-shrink:0;
+  }
+  .alerta-icon.tipo-supervisor { background:#fef3c7; }
+  .alerta-icon.tipo-cita { background:#d1fae5; }
+  .alerta-body { flex:1; min-width:0; }
+  .alerta-title { font-size:14px; font-weight:600; margin-bottom:2px; }
+  .alerta-detail { font-size:12px; color:var(--text-secondary); margin-bottom:4px; }
+  .alerta-time { font-size:11px; color:var(--neutral); }
+  .alerta-crm-btn {
+    padding:5px 12px; border-radius:6px; background:var(--primary-light); color:var(--primary);
+    font-size:11px; font-weight:600; border:none; cursor:pointer; white-space:nowrap;
+    flex-shrink:0; align-self:center;
+  }
+  .alerta-crm-btn:hover { background:var(--primary); color:white; }
+
   .cal-event {
     position:absolute; left:2px; right:2px; border-radius:4px; padding:2px 5px;
     font-size:10px; line-height:1.2; overflow:hidden; cursor:pointer;
@@ -489,6 +522,10 @@
     <button class="nav-item" onclick="showSection('calendario')">
       <span class="icon">&#128467;</span> <span>Calendario</span>
     </button>
+    <button class="nav-item" onclick="showSection('alertas')">
+      <span class="icon">&#128680;</span> <span>Alertas</span>
+      <span class="badge alert-badge" id="navAlertBadge" style="display:none;background:#dc2626">0</span>
+    </button>
     <button class="nav-item" onclick="showSection('seguimientos')">
       <span class="icon">&#128276;</span> <span>Seguimientos</span>
     </button>
@@ -580,6 +617,15 @@
       <div id="convThreadView" style="display:none">
         <div id="threadWrapper"></div>
       </div>
+    </div>
+
+    <!-- ALERTAS -->
+    <div class="section" id="sec-alertas">
+      <div class="alertas-toolbar">
+        <button class="cal-btn" onclick="marcarTodasLeidas()">Marcar todas como leidas</button>
+        <label class="alertas-filter"><input type="checkbox" id="alertasSoloNuevas" onchange="cargarAlertas()"> Solo no leidas</label>
+      </div>
+      <div id="alertasWrapper"><div class="loading">Cargando...</div></div>
     </div>
 
     <!-- SEGUIMIENTOS -->
@@ -763,11 +809,12 @@ function showSection(name) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.getElementById('sec-' + name).classList.add('active');
 
-  const titles = { agenda:'Agenda de Citas', log:'Conversaciones del Agente', seguimientos:'Seguimientos Automaticos', usuarios:'Gestion de Usuarios', calendario:'Calendario' };
+  const titles = { agenda:'Agenda de Citas', log:'Conversaciones del Agente', seguimientos:'Seguimientos Automaticos', usuarios:'Gestion de Usuarios', calendario:'Calendario', alertas:'Alertas en Tiempo Real' };
   document.getElementById('sectionTitle').textContent = titles[name] || '';
   document.getElementById('dateNavBar').style.display = name === 'agenda' ? 'flex' : 'none';
 
   if (name === 'log') cargarLog();
+  if (name === 'alertas') cargarAlertas();
   if (name === 'seguimientos') cargarSeguimientos();
   if (name === 'usuarios') cargarUsuarios();
   if (name === 'calendario') { gcalLoadStatus(); calRender(); }
@@ -783,6 +830,7 @@ function cambiarDia(d) {
 function refreshCurrent() {
   if (currentSection === 'agenda') cargarCitas(fechaActual);
   else if (currentSection === 'log') cargarLog();
+  else if (currentSection === 'alertas') cargarAlertas();
   else if (currentSection === 'seguimientos') cargarSeguimientos();
   else if (currentSection === 'usuarios') cargarUsuarios();
   else if (currentSection === 'calendario') calRender();
@@ -1480,6 +1528,161 @@ function calOpenCreate() {
   document.getElementById('cmNotas').value = '';
   document.getElementById('calModal').style.display = '';
 }
+
+// ── ALERTAS + NOTIFICACIONES SONORAS ──
+
+const CHATWOOT_URL = 'https://chats.alef.company/app/accounts/16/conversations';
+
+// Generador de sonidos via Web Audio API (no requiere archivos externos)
+const _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playAlertSound(type) {
+  // type: 'supervisor' (urgente) o 'cita' (positivo)
+  try {
+    const ctx = _audioCtx;
+    if (ctx.state === 'suspended') ctx.resume();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    gain.gain.value = 0.3;
+
+    if (type === 'supervisor') {
+      // Sonido urgente: 3 beeps rapidos agudos
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.setValueAtTime(0, ctx.currentTime + 0.12);
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.18);
+      osc.frequency.setValueAtTime(0, ctx.currentTime + 0.30);
+      osc.frequency.setValueAtTime(1046, ctx.currentTime + 0.36);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.55);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.55);
+    } else {
+      // Sonido positivo: acorde ascendente suave
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(523, ctx.currentTime);
+      osc.frequency.setValueAtTime(659, ctx.currentTime + 0.15);
+      osc.frequency.setValueAtTime(784, ctx.currentTime + 0.30);
+      gain.gain.setValueAtTime(0.25, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.5);
+    }
+  } catch(e) { /* Audio not available */ }
+}
+
+let _lastAlertCount = 0;
+let _knownAlertIds = new Set();
+
+async function pollAlertas() {
+  try {
+    const r = await fetch(API + '/alertas?no_leidas=true');
+    const d = await r.json();
+    const count = d.no_leidas || 0;
+    const badge = document.getElementById('navAlertBadge');
+
+    if (count > 0) {
+      badge.textContent = count;
+      badge.style.display = '';
+    } else {
+      badge.style.display = 'none';
+    }
+
+    // Detectar alertas NUEVAS para sonido
+    if (d.alertas && d.alertas.length > 0) {
+      for (const a of d.alertas) {
+        if (!_knownAlertIds.has(a.id)) {
+          _knownAlertIds.add(a.id);
+          // Solo sonar si no es la primera carga
+          if (_lastAlertCount !== 0 || _knownAlertIds.size > d.alertas.length) {
+            playAlertSound(a.tipo === 'supervisor' ? 'supervisor' : 'cita');
+          }
+        }
+      }
+    }
+    _lastAlertCount = count;
+
+    // Si estamos en la seccion de alertas, refrescar
+    if (currentSection === 'alertas') renderAlertas(d.alertas);
+  } catch(e) { /* silent */ }
+}
+
+async function cargarAlertas() {
+  const w = document.getElementById('alertasWrapper');
+  w.innerHTML = '<div class="loading">Cargando...</div>';
+  try {
+    const soloNuevas = document.getElementById('alertasSoloNuevas').checked;
+    const r = await fetch(API + '/alertas?limit=100&no_leidas=' + soloNuevas);
+    const d = await r.json();
+    renderAlertas(d.alertas);
+  } catch(e) {
+    w.innerHTML = '<div class="empty"><h3>Error cargando alertas</h3></div>';
+  }
+}
+
+function renderAlertas(alertas) {
+  const w = document.getElementById('alertasWrapper');
+  if (!alertas || !alertas.length) {
+    w.innerHTML = '<div class="empty"><h3>Sin alertas</h3><p>Las alertas de supervisor y citas agendadas apareceran aqui</p></div>';
+    return;
+  }
+
+  let html = '';
+  for (const a of alertas) {
+    const isSupervisor = a.tipo === 'supervisor';
+    const icon = isSupervisor ? '&#9888;&#65039;' : '&#9989;';
+    const iconClass = isSupervisor ? 'tipo-supervisor' : 'tipo-cita';
+    const title = isSupervisor ? 'Pasado a Supervisor' : 'Cita Agendada';
+    const leidaClass = a.leida ? 'leida' : 'no-leida';
+    const nombre = esc(a.contact_name || 'Paciente');
+    const detalle = esc(a.detalle || '');
+    const phone = a.contact_phone ? ' — ' + esc(a.contact_phone) : '';
+    const time = a.created_at ? formatAlertTime(a.created_at) : '';
+    const convId = a.conversation_id;
+    const crmLink = convId ? `${CHATWOOT_URL}/${convId}` : '';
+
+    html += `<div class="alerta-card ${leidaClass}" onclick="${crmLink ? `window.open('${crmLink}','_blank')` : ''}">
+      <div class="alerta-icon ${iconClass}">${icon}</div>
+      <div class="alerta-body">
+        <div class="alerta-title">${title}</div>
+        <div class="alerta-detail"><strong>${nombre}</strong>${phone}</div>
+        <div class="alerta-detail">${detalle}</div>
+        <div class="alerta-time">${time}</div>
+      </div>
+      ${crmLink ? `<a class="alerta-crm-btn" href="${crmLink}" target="_blank" onclick="event.stopPropagation()">Abrir en CRM</a>` : ''}
+    </div>`;
+  }
+  w.innerHTML = html;
+}
+
+function formatAlertTime(isoStr) {
+  try {
+    const d = new Date(isoStr);
+    const now = new Date();
+    const diff = (now - d) / 1000;
+    if (diff < 60) return 'Hace un momento';
+    if (diff < 3600) return `Hace ${Math.floor(diff/60)} min`;
+    if (diff < 86400) return `Hace ${Math.floor(diff/3600)}h`;
+    return d.toLocaleDateString('es-PE', {day:'2-digit',month:'short'}) + ' ' + d.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit',hour12:true});
+  } catch(e) { return isoStr; }
+}
+
+async function marcarTodasLeidas() {
+  try {
+    await fetch(API + '/alertas/leer', { method:'POST', headers:authHeaders, body:'{}' });
+    toast('Todas las alertas marcadas como leidas');
+    cargarAlertas();
+    pollAlertas();
+  } catch(e) { toast('Error'); }
+}
+
+// Polling cada 15 segundos para alertas nuevas
+pollAlertas();
+// Inicializar IDs conocidos para no sonar en la primera carga
+setTimeout(() => { _lastAlertCount = -1; }, 3000);
+setInterval(pollAlertas, 15000);
 
 function calEditCita(id) { abrirEditarCita(id); }
 

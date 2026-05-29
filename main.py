@@ -502,6 +502,15 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
             cita_id = await appointments.crear_cita(cita)
             log.info(f"[Conv {conversation_id}] CITA CREADA #{cita_id}: {nombre} {fecha} {hora}")
 
+            # Registrar alerta de cita agendada
+            await appointments.registrar_alerta(
+                tipo="cita_agendada",
+                conversation_id=conversation_id,
+                contact_name=nombre,
+                contact_phone=telefono,
+                detalle=f"Cita #{cita_id}: {fecha} {hora} — {cita_data.get('motivo', 'Consulta')}",
+            )
+
             # Crear evento en Google Calendar si esta conectado (pre-agenda = pendiente)
             gcal_token = await appointments.get_gcal_token()
             if gcal_token:
@@ -534,6 +543,14 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
         state.handoff = True
         state.handoff_at = datetime.now().isoformat()
         log.info(f"[Conv {conversation_id}] HANDOFF por IA — motivo: {supervisor_motivo}")
+        # Registrar alerta de supervisor
+        await appointments.registrar_alerta(
+            tipo="supervisor",
+            conversation_id=conversation_id,
+            contact_name=state.contact_name or contact_name or "",
+            contact_phone=state.contact_phone or contact_phone or "",
+            detalle=f"IA escalo: {supervisor_motivo}",
+        )
         await add_label(conversation_id, "supervisor")
         await set_custom_attributes(conversation_id, {"ai_status": "supervisor", "pasar_supervisor": "si"})
         # Cerrar seguimiento para que no reciba follow-ups
@@ -671,6 +688,7 @@ async def webhook_chatwoot(request: Request):
                 await save_state(state)
                 await set_custom_attributes(conv_id, {"ai_status": "supervisor", "pasar_supervisor": "si"})
                 await appointments.cerrar_seguimiento(conv_id)
+                await appointments.registrar_alerta(tipo="supervisor", conversation_id=conv_id, detalle="Handoff activado via label")
                 log.info(f"[Conv {conv_id}] Handoff activado via LABEL — IA pausada")
                 return {"ok": True, "action": "handoff_activated_via_label"}
 
@@ -1191,6 +1209,15 @@ async def handoff_conversation(conversation_id: int, request: Request):
     action = "ACTIVADO" if activate else "DESACTIVADO"
     log.info(f"[Conv {conversation_id}] Handoff {action} manualmente")
 
+    # Registrar alerta si se activa handoff manual
+    if activate:
+        await appointments.registrar_alerta(
+            tipo="supervisor",
+            conversation_id=conversation_id,
+            contact_name="",
+            detalle="Handoff manual activado",
+        )
+
     # Actualizar custom attribute en Chatwoot
     await set_custom_attributes(conversation_id, {
         "ai_status": "supervisor" if activate else "ia_activa",
@@ -1357,6 +1384,31 @@ async def gcal_events(desde: str, hasta: str):
     except Exception as e:
         log.error(f"Error fetching gcal events: {e}")
         return {"events": [], "connected": True, "error": str(e)}
+
+
+# ─── Alertas API ───
+
+@app.get("/api/alertas")
+async def get_alertas(limit: int = 50, no_leidas: bool = False):
+    """Lista alertas recientes (handoff + citas agendadas)."""
+    rows = await appointments.get_alertas(limit, solo_no_leidas=no_leidas)
+    result = []
+    for r in rows:
+        item = dict(r)
+        if item.get("created_at"):
+            item["created_at"] = item["created_at"].isoformat()
+        result.append(item)
+    count = await appointments.contar_alertas_no_leidas()
+    return {"alertas": result, "no_leidas": count}
+
+
+@app.post("/api/alertas/leer")
+async def marcar_alertas_leidas(request: Request):
+    """Marca alertas como leidas."""
+    body = await request.json() if await request.body() else {}
+    ids = body.get("ids")  # None = marcar todas
+    await appointments.marcar_alertas_leidas(ids)
+    return {"ok": True}
 
 
 @app.delete("/api/gcal/disconnect")

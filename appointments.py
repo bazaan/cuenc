@@ -115,6 +115,21 @@ async def init_db():
                 motivo TEXT DEFAULT 'lleno',
                 created_at TIMESTAMPTZ DEFAULT NOW()
             );
+
+            -- Alertas (handoff a supervisor + citas agendadas)
+            CREATE TABLE IF NOT EXISTS alertas (
+                id SERIAL PRIMARY KEY,
+                tipo TEXT NOT NULL,
+                conversation_id INTEGER,
+                contact_name TEXT,
+                contact_phone TEXT,
+                detalle TEXT,
+                leida BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_alertas_created ON alertas(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_alertas_leida ON alertas(leida);
         """)
         log.info("DB inicializada: tablas citas y ejecuciones listas")
 
@@ -514,6 +529,45 @@ async def cerrar_seguimientos_expirados():
             UPDATE seguimientos SET cerrado = TRUE
             WHERE NOT cerrado AND ultimo_mensaje_at < NOW() - INTERVAL '24 hours'
         """)
+
+
+async def registrar_alerta(tipo: str, conversation_id: int = None, contact_name: str = "", contact_phone: str = "", detalle: str = ""):
+    """Registra una alerta (supervisor o cita_agendada)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO alertas (tipo, conversation_id, contact_name, contact_phone, detalle)
+            VALUES ($1, $2, $3, $4, $5)
+        """, tipo, conversation_id, contact_name, contact_phone, detalle)
+
+
+async def get_alertas(limit: int = 50, solo_no_leidas: bool = False) -> list[dict]:
+    """Retorna alertas recientes."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        where = "WHERE NOT leida" if solo_no_leidas else ""
+        rows = await conn.fetch(f"""
+            SELECT * FROM alertas {where}
+            ORDER BY created_at DESC LIMIT $1
+        """, limit)
+        return [dict(r) for r in rows]
+
+
+async def marcar_alertas_leidas(ids: list[int] = None):
+    """Marca alertas como leidas. Si ids=None, marca todas."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        if ids:
+            await conn.execute("UPDATE alertas SET leida = TRUE WHERE id = ANY($1)", ids)
+        else:
+            await conn.execute("UPDATE alertas SET leida = TRUE WHERE NOT leida")
+
+
+async def contar_alertas_no_leidas() -> int:
+    """Cuenta alertas no leidas."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval("SELECT COUNT(*) FROM alertas WHERE NOT leida")
 
 
 async def stats_dia(fecha: date) -> dict:
