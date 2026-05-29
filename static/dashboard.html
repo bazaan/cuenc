@@ -313,6 +313,29 @@
   .quick-block-btn.active { background:var(--danger); color:white; border-color:var(--danger); animation:pulse-block 1.5s infinite; }
   @keyframes pulse-block { 0%,100%{opacity:1} 50%{opacity:0.8} }
 
+  /* Leyenda de colores */
+  .cal-legend {
+    display:flex; flex-wrap:wrap; gap:10px 18px; padding:10px 14px;
+    background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
+    margin-bottom:12px; box-shadow:var(--shadow);
+  }
+  .cal-legend-item {
+    display:flex; align-items:center; gap:6px; font-size:12px; font-weight:500;
+    color:var(--text-secondary);
+  }
+  .cal-legend-dot {
+    width:14px; height:14px; border-radius:4px; flex-shrink:0; border:1px solid rgba(0,0,0,0.08);
+  }
+  .cal-legend-dot.leg-pendiente { background:#fff7ed; border-left:3px solid var(--warning); }
+  .cal-legend-dot.leg-confirmada { background:#ecfdf5; border-left:3px solid var(--success); }
+  .cal-legend-dot.leg-atendida { background:#e8f5f0; border-left:3px solid var(--primary); }
+  .cal-legend-dot.leg-no_contesto { background:#f3f4f6; border-left:3px solid var(--neutral); }
+  .cal-legend-dot.leg-cancelada { background:#fef2f2; border-left:3px solid var(--danger); opacity:0.7; }
+  .cal-legend-dot.leg-bloqueado { background:#fee2e2; border-left:3px solid var(--danger); }
+  .cal-legend-dot.leg-receso { background:#fefce8; border-left:3px solid #ca8a04; }
+  .cal-legend-dot.leg-gcal { background:rgba(66,133,244,0.12); border-left:3px solid #4285f4; }
+  .cal-legend-dot.leg-closed { background:repeating-linear-gradient(135deg,#f9fafb,#f9fafb 3px,#f3f4f6 3px,#f3f4f6 6px); }
+
   .cal-event {
     position:absolute; left:2px; right:2px; border-radius:4px; padding:2px 5px;
     font-size:10px; line-height:1.2; overflow:hidden; cursor:pointer;
@@ -534,6 +557,17 @@
           <button class="cal-btn quick-block-btn" id="quickBlockBtn" onclick="toggleQuickBlock()">&#128683; Ocupado Rapido</button>
           <button class="cal-btn cal-create-btn" onclick="calOpenCreate()">+ Nueva Cita</button>
         </div>
+      </div>
+      <div class="cal-legend">
+        <div class="cal-legend-item"><div class="cal-legend-dot leg-pendiente"></div>Pendiente</div>
+        <div class="cal-legend-item"><div class="cal-legend-dot leg-confirmada"></div>Confirmada</div>
+        <div class="cal-legend-item"><div class="cal-legend-dot leg-atendida"></div>Atendida</div>
+        <div class="cal-legend-item"><div class="cal-legend-dot leg-no_contesto"></div>No contesto</div>
+        <div class="cal-legend-item"><div class="cal-legend-dot leg-cancelada"></div>Cancelada</div>
+        <div class="cal-legend-item"><div class="cal-legend-dot leg-bloqueado"></div>Bloqueado</div>
+        <div class="cal-legend-item"><div class="cal-legend-dot leg-receso"></div>Receso</div>
+        <div class="cal-legend-item"><div class="cal-legend-dot leg-closed"></div>Fuera de horario</div>
+        <div class="cal-legend-item"><div class="cal-legend-dot leg-gcal"></div>Google Calendar</div>
       </div>
       <div id="calGrid"></div>
     </div>
