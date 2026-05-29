@@ -442,6 +442,13 @@ async def _debounce_fire(conversation_id: int):
 @app.post("/webhook/chatwoot")
 async def webhook_chatwoot(request: Request):
     """Recibe mensajes desde Chatwoot. Acumula mensajes rápidos (debounce 3s)."""
+    # Validar token del Bot de Chatwoot
+    auth_header = request.headers.get("Authorization", "")
+    bot_token = os.getenv("CHATWOOT_BOT_TOKEN", "")
+    if bot_token and auth_header != f"Bearer {bot_token}":
+        log.warning(f"[Webhook] Token inválido: {auth_header[:20]}")
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+
     try:
         payload = await request.json()
     except Exception:

@@ -6,7 +6,7 @@ import os
 CHATWOOT_BASE_URL = os.getenv("CHATWOOT_BASE_URL", "https://clinicas.alefcompany.online")
 CHATWOOT_API_TOKEN = os.getenv("CHATWOOT_API_TOKEN", "")
 CHATWOOT_ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID", "1")
-CHATWOOT_BOT_TOKEN = os.getenv("CHATWOOT_BOT_TOKEN", "")  # Agent Bot token (si se usa)
+CHATWOOT_BOT_TOKEN = os.getenv("CHATWOOT_BOT_TOKEN", "VjkEDYABP3ejGFum9DHfmM8w")  # Bot token de Chatwoot
 
 # --- OpenAI (Whisper transcripcion audio) ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
@@ -14,7 +14,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 # --- OpenAI API ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 AI_MODEL = os.getenv("AI_MODEL", "gpt-5-mini")
-AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "500"))  # Respuestas + JSON cita (increased for gpt-5-mini)
+AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "1500"))  # Respuestas + JSON cita (must exceed system prompt token consumption)
 
 # --- Redis (estado de conversacion) ---
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
