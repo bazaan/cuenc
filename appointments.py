@@ -5,7 +5,7 @@ import logging
 from datetime import date, time, datetime, timedelta
 from typing import Optional
 import asyncpg
-from config import DATABASE_URL, HORARIO_INICIO, HORARIO_FIN, HORARIO_FIN_SABADO, INTERVALO_CITAS_MIN, SLOTS_VISIBLES
+from config import DATABASE_URL, HORARIO_INICIO, HORARIO_FIN, HORARIO_FIN_SABADO, INTERVALO_CITAS_MIN, SLOTS_VISIBLES, TURNO_MANANA, TURNO_TARDE
 from models import Cita, EstadoCita, Canal
 
 log = logging.getLogger(__name__)
@@ -62,6 +62,12 @@ async def init_db():
             -- Agregar columna contact_phone si no existe (migracion)
             DO $$ BEGIN
                 ALTER TABLE ejecuciones ADD COLUMN IF NOT EXISTS contact_phone TEXT;
+            EXCEPTION WHEN OTHERS THEN NULL;
+            END $$;
+
+            -- Agregar columna tipo_paciente si no existe (migracion v32)
+            DO $$ BEGIN
+                ALTER TABLE citas ADD COLUMN IF NOT EXISTS tipo_paciente TEXT;
             EXCEPTION WHEN OTHERS THEN NULL;
             END $$;
 
@@ -129,14 +135,50 @@ async def crear_cita(cita: Cita) -> int:
                 return existing
 
         row = await conn.fetchrow("""
-            INSERT INTO citas (nombre_paciente, telefono, fecha, hora, motivo, canal, estado, conversation_id, contact_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO citas (nombre_paciente, telefono, fecha, hora, motivo, canal, estado, conversation_id, contact_id, tipo_paciente)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING id
         """, cita.nombre_paciente, cita.telefono, cita.fecha, cita.hora,
             cita.motivo, cita.canal.value, cita.estado.value,
-            cita.conversation_id, cita.contact_id)
+            cita.conversation_id, cita.contact_id, cita.tipo_paciente)
         log.info(f"Cita creada #{row['id']}: {cita.nombre_paciente} - {cita.fecha} {cita.hora}")
         return row["id"]
+
+
+async def buscar_citas_por_nombre(nombre: str) -> list[dict]:
+    """Busca citas activas (futuras) por nombre de paciente (búsqueda parcial, case-insensitive)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT id, nombre_paciente, telefono, fecha, hora, motivo, estado, conversation_id
+            FROM citas
+            WHERE LOWER(nombre_paciente) LIKE '%' || LOWER($1) || '%'
+            AND estado NOT IN ('cancelada', 'bloqueado')
+            AND fecha >= CURRENT_DATE
+            ORDER BY fecha, hora
+            LIMIT 5
+        """, nombre)
+        return [dict(r) for r in rows]
+
+
+async def buscar_citas_por_telefono(telefono: str) -> list[dict]:
+    """Busca citas activas (futuras) por teléfono."""
+    pool = await get_pool()
+    # Limpiar: quedarnos solo con dígitos y los últimos 9
+    tel_limpio = ''.join(c for c in telefono if c.isdigit())[-9:]
+    if len(tel_limpio) < 7:
+        return []
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT id, nombre_paciente, telefono, fecha, hora, motivo, estado, conversation_id
+            FROM citas
+            WHERE telefono LIKE '%' || $1
+            AND estado NOT IN ('cancelada', 'bloqueado')
+            AND fecha >= CURRENT_DATE
+            ORDER BY fecha, hora
+            LIMIT 5
+        """, tel_limpio)
+        return [dict(r) for r in rows]
 
 
 async def get_slots_ocupados(fecha: date) -> list[time]:
@@ -151,23 +193,24 @@ async def get_slots_ocupados(fecha: date) -> list[time]:
         return [r["hora"] for r in rows]
 
 
-RECESO_INICIO = time(13, 0)  # 1:00 PM
-RECESO_FIN = time(14, 0)     # 2:00 PM
-
-
 def generar_slots(fecha: date) -> list[time]:
-    """Genera todos los slots posibles para un dia. Sabado termina a mediodia. Excluye receso 1-2pm."""
-    inicio = datetime.strptime(HORARIO_INICIO, "%H:%M")
-    horario_fin = HORARIO_FIN_SABADO if fecha.weekday() == 5 else HORARIO_FIN
-    fin = datetime.strptime(horario_fin, "%H:%M")
+    """Genera slots por turnos: mañana 8:30-11:00 (Lun-Sab), tarde 14:00-15:40 (solo Lun-Vie)."""
     slots = []
-    current = inicio
-    while current < fin:
-        t = current.time()
-        # Excluir receso 1pm-2pm
-        if not (RECESO_INICIO <= t < RECESO_FIN):
-            slots.append(t)
+    # Turno mañana (Lun-Sab)
+    inicio_m = datetime.strptime(TURNO_MANANA[0], "%H:%M")
+    fin_m = datetime.strptime(TURNO_MANANA[1], "%H:%M")
+    current = inicio_m
+    while current <= fin_m:
+        slots.append(current.time())
         current += timedelta(minutes=INTERVALO_CITAS_MIN)
+    # Turno tarde (solo Lun-Vie, no Sab)
+    if fecha.weekday() < 5:
+        inicio_t = datetime.strptime(TURNO_TARDE[0], "%H:%M")
+        fin_t = datetime.strptime(TURNO_TARDE[1], "%H:%M")
+        current = inicio_t
+        while current <= fin_t:
+            slots.append(current.time())
+            current += timedelta(minutes=INTERVALO_CITAS_MIN)
     return slots
 
 
@@ -243,12 +286,23 @@ async def get_slots_disponibles(fecha: date, gcal_busy: list | None = None) -> l
     if not disponibles:
         return []
 
-    # Dispersar: tomar slots equidistantes para que no se vea vacio
+    # Separar mañana y tarde para garantizar representación de ambos turnos
+    manana = [s for s in disponibles if s.hour < 12]
+    tarde = [s for s in disponibles if s.hour >= 12]
+
     if len(disponibles) <= SLOTS_VISIBLES:
         seleccion = disponibles
+    elif manana and tarde:
+        # Garantizar al menos 1 slot de cada turno
+        # 2 de mañana (inicio y medio) + 1 de tarde (inicio)
+        m_step = max(1, len(manana) // 2)
+        seleccion = [manana[0], manana[min(m_step, len(manana)-1)], tarde[0]]
+    elif manana:
+        step = max(1, len(manana) // SLOTS_VISIBLES)
+        seleccion = [manana[i * step] for i in range(min(SLOTS_VISIBLES, len(manana)))]
     else:
-        step = len(disponibles) // SLOTS_VISIBLES
-        seleccion = [disponibles[i * step] for i in range(SLOTS_VISIBLES)]
+        step = max(1, len(tarde) // SLOTS_VISIBLES)
+        seleccion = [tarde[i * step] for i in range(min(SLOTS_VISIBLES, len(tarde)))]
 
     return [s.strftime("%I:%M %p").lstrip("0") for s in seleccion]
 
@@ -383,9 +437,9 @@ async def upsert_seguimiento(conversation_id: int, contact_name: str, cita_cread
             # Si ya estaba marcado como interesado, no quitarlo
             new_interesado = existing["interesado"] or interesado
             await conn.execute("""
-                UPDATE seguimientos SET ultimo_mensaje_at = NOW(), contact_name = $2, interesado = $4
-                WHERE id = $3
-            """, conversation_id, contact_name, existing["id"], new_interesado)
+                UPDATE seguimientos SET ultimo_mensaje_at = NOW(), contact_name = $1, interesado = $3
+                WHERE id = $2
+            """, contact_name, existing["id"], new_interesado)
         else:
             await conn.execute("""
                 INSERT INTO seguimientos (conversation_id, contact_name, ultimo_mensaje_at, interesado)

@@ -44,8 +44,6 @@ CLINICA_DIRECCION = "Av. Arequipa 2050, Lince, Lima (altura CC Risso)"
 HORARIO_INICIO = "08:30"
 HORARIO_FIN = "16:00"
 HORARIO_FIN_SABADO = "12:00"
-TURNO_MANANA = ["08:30", "12:00"]  # Turno mañana
-TURNO_TARDE = ["14:00", "16:00"]   # Turno tarde
 INTERVALO_CITAS_MIN = 10
 SLOTS_VISIBLES = 3  # Mostrar solo 3 horarios (pedido del doctor)
 

@@ -3,13 +3,13 @@
 import json
 import logging
 from datetime import date, datetime, timedelta
-import anthropic
-from config import ANTHROPIC_API_KEY, AI_MODEL, AI_MAX_TOKENS, TIMEZONE
+from openai import AsyncOpenAI
+from config import OPENAI_API_KEY, AI_MODEL, AI_MAX_TOKENS, TIMEZONE
 from models import ConversationState
 
 log = logging.getLogger(__name__)
 
-client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 SYSTEM_PROMPT = """Eres la asistente del equipo del Dr. Hebert Cuenca, médico especialista en neumología y medicina respiratoria, en la Clínica Respira Vida.
 
@@ -165,8 +165,9 @@ async def generate_response(
     user_message: str,
     slots_disponibles: list[str] | None = None,
     fecha_contexto: str | None = None,
+    citas_existentes: list[dict] | None = None,
 ) -> str:
-    """Genera respuesta del agente usando Claude."""
+    """Genera respuesta del agente usando OpenAI."""
 
     # Construir contexto adicional
     context_parts = []
@@ -209,24 +210,26 @@ async def generate_response(
 
     context_block = "\n".join(context_parts)
 
-    # Construir mensajes
-    messages = []
+    # Construir mensajes con system prompt
+    system = f"{SYSTEM_PROMPT}\n\nCONTEXTO ACTUAL:\n{context_block}"
+    messages = [
+        {"role": "system", "content": system}
+    ]
+
+    # Agregar historial
     for msg in state.messages[-8:]:  # Ultimos 8 mensajes de contexto
         messages.append({"role": msg["role"], "content": msg["content"]})
     messages.append({"role": "user", "content": user_message})
 
-    system = f"{SYSTEM_PROMPT}\n\nCONTEXTO ACTUAL:\n{context_block}"
-
     try:
-        response = await client.messages.create(
+        response = await client.chat.completions.create(
             model=AI_MODEL,
-            max_tokens=AI_MAX_TOKENS,
-            system=system,
+            max_completion_tokens=AI_MAX_TOKENS,
             messages=messages,
         )
-        return response.content[0].text
+        return response.choices[0].message.content
     except Exception as e:
-        log.error(f"Error Claude API: {e}")
+        log.error(f"Error OpenAI API: {e}")
         return "Disculpe, tuvimos un inconveniente. ¿En qué puedo ayudarle? 🏥"
 
 
