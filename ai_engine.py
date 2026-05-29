@@ -227,9 +227,13 @@ async def generate_response(
             max_completion_tokens=AI_MAX_TOKENS,
             messages=messages,
         )
-        return response.choices[0].message.content
+        content = response.choices[0].message.content
+        if not content:
+            log.warning(f"OpenAI devolvió contenido vacío. Response: {response}")
+            return "Disculpe, tuvimos un inconveniente. ¿En qué puedo ayudarle? 🏥"
+        return content
     except Exception as e:
-        log.error(f"Error OpenAI API: {e}")
+        log.error(f"Error OpenAI API: {type(e).__name__}: {e}")
         return "Disculpe, tuvimos un inconveniente. ¿En qué puedo ayudarle? 🏥"
 
 
