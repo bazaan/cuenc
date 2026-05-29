@@ -115,6 +115,12 @@
   .b-cancelada { background:var(--danger-light); color:var(--danger); }
   .b-no_contesto { background:var(--neutral-light); color:var(--neutral); }
   .b-atendida { background:var(--primary-light); color:var(--primary); }
+  /* Tipo paciente badges */
+  .tp-nuevo { background:#dbeafe; color:#1e40af; }
+  .tp-primer_control { background:#fef3c7; color:#92400e; }
+  .tp-antiguo { background:#d1fae5; color:#065f46; }
+  .tp-procedimiento { background:#ede9fe; color:#5b21b6; }
+  .tp-levantamiento { background:#fce7f3; color:#9d174d; }
 
   /* Action buttons */
   .actions { display:flex; gap:4px; flex-wrap:wrap; }
@@ -286,13 +292,26 @@
   }
   .cal-day-col:last-child { border-right:none; }
   .cal-slot {
-    height:28px; border-bottom:1px solid transparent; position:relative; cursor:pointer;
+    height:28px; border-bottom:1px solid #ebedf0; position:relative; cursor:pointer;
   }
-  .cal-slot:nth-child(3n+1) { border-bottom-color:#f0f1f3; }
+  .cal-slot:nth-child(3n+1) { border-bottom:1px solid #d5d8dc; }
   .cal-slot:hover { background:var(--primary-light); }
-  .cal-slot.half { border-bottom:1px dashed #f0f1f3; }
+  .cal-slot .slot-label {
+    position:absolute; left:3px; top:50%; transform:translateY(-50%);
+    font-size:9px; color:#b0b5bd; font-weight:500; pointer-events:none;
+    opacity:0.7;
+  }
+  .cal-slot:hover .slot-label { opacity:0; }
   .cal-slot.cal-closed { background:repeating-linear-gradient(135deg,#f9fafb,#f9fafb 4px,#f3f4f6 4px,#f3f4f6 8px); pointer-events:none; cursor:default; }
   .cal-slot.cal-closed:hover { background:repeating-linear-gradient(135deg,#f9fafb,#f9fafb 4px,#f3f4f6 4px,#f3f4f6 8px); }
+  .cal-slot.cal-receso { background:#fefce8; pointer-events:none; cursor:default; }
+  .cal-slot.cal-receso .slot-label { color:#ca8a04; opacity:0.5; }
+  .cal-slot.cal-bloqueado { background:#fee2e2; cursor:pointer; }
+  .cal-slot.cal-bloqueado .slot-label { color:var(--danger); opacity:0.8; font-weight:700; }
+  .cal-slot.cal-bloqueado:hover { background:#fecaca; }
+  .quick-block-btn { background:var(--danger-light); color:var(--danger); border:2px solid transparent; }
+  .quick-block-btn.active { background:var(--danger); color:white; border-color:var(--danger); animation:pulse-block 1.5s infinite; }
+  @keyframes pulse-block { 0%,100%{opacity:1} 50%{opacity:0.8} }
 
   .cal-event {
     position:absolute; left:2px; right:2px; border-radius:4px; padding:2px 5px;
@@ -378,6 +397,29 @@
     display:flex; justify-content:flex-end; gap:8px;
   }
 
+  /* AI Toggle */
+  .ai-toggle-wrapper {
+    display:flex; align-items:center; gap:8px; background:var(--bg);
+    border:1px solid var(--border); border-radius:10px; padding:5px 12px;
+  }
+  .ai-toggle-wrapper .ai-label { font-size:12px; font-weight:600; color:var(--text-secondary); white-space:nowrap; }
+  .ai-toggle-wrapper .ai-status { font-size:11px; font-weight:700; white-space:nowrap; }
+  .ai-toggle-wrapper .ai-status.on { color:var(--success); }
+  .ai-toggle-wrapper .ai-status.off { color:var(--danger); }
+  .ai-switch {
+    position:relative; width:40px; height:22px; cursor:pointer;
+    background:var(--border); border-radius:12px; border:none;
+    transition:background 0.2s; flex-shrink:0;
+  }
+  .ai-switch.on { background:var(--success); }
+  .ai-switch::after {
+    content:''; position:absolute; top:2px; left:2px;
+    width:18px; height:18px; border-radius:50%; background:white;
+    box-shadow:0 1px 3px rgba(0,0,0,0.2); transition:transform 0.2s;
+  }
+  .ai-switch.on::after { transform:translateX(18px); }
+  .ai-switch:hover { opacity:0.85; }
+
   /* Mobile */
   @media (max-width:768px) {
     .sidebar { width:60px; }
@@ -450,6 +492,11 @@
         <input type="date" id="datePicker" onchange="cargarCitas(this.value)">
         <button onclick="cambiarDia(1)">&#8250;</button>
       </div>
+      <div class="ai-toggle-wrapper" id="aiToggleWrapper">
+        <span class="ai-label">IA</span>
+        <button class="ai-switch" id="aiSwitch" onclick="toggleAI()" title="Activar/Desactivar IA"></button>
+        <span class="ai-status" id="aiStatusText">...</span>
+      </div>
       <button class="btn-refresh" onclick="refreshCurrent()">&#8635;</button>
     </div>
   </div>
@@ -484,6 +531,7 @@
         <div class="cal-toolbar-right">
           <button class="cal-btn cal-view-btn active" data-view="week" onclick="calSetView('week')">Semana</button>
           <button class="cal-btn cal-view-btn" data-view="day" onclick="calSetView('day')">Dia</button>
+          <button class="cal-btn quick-block-btn" id="quickBlockBtn" onclick="toggleQuickBlock()">&#128683; Ocupado Rapido</button>
           <button class="cal-btn cal-create-btn" onclick="calOpenCreate()">+ Nueva Cita</button>
         </div>
       </div>
@@ -541,6 +589,16 @@
       </div>
       <div class="form-field"><label>Motivo</label><input id="cmMotivo" placeholder="Motivo de consulta"></div>
       <div class="cm-row">
+        <div class="form-field"><label>Tipo Paciente</label>
+          <select id="cmTipoPaciente">
+            <option value="">— Sin asignar —</option>
+            <option value="nuevo">Nuevo</option>
+            <option value="primer_control">Primer Control</option>
+            <option value="antiguo">Antiguo</option>
+            <option value="procedimiento">Procedimiento</option>
+            <option value="levantamiento">Levantamiento</option>
+          </select>
+        </div>
         <div class="form-field"><label>Estado</label>
           <select id="cmEstado">
             <option value="pendiente">Pendiente (Pre-agenda)</option>
@@ -550,6 +608,8 @@
             <option value="atendida">Atendida</option>
           </select>
         </div>
+      </div>
+      <div class="cm-row">
         <div class="form-field"><label>Canal</label>
           <select id="cmCanal" disabled>
             <option value="web">Panel</option>
@@ -606,6 +666,61 @@ cargarCitas(fechaActual);
 
 // Auto-refresh
 setInterval(() => { if (currentSection === 'agenda') cargarCitas(fechaActual, true); }, 30000);
+
+// ── AI TOGGLE ──
+let aiEnabled = null;
+
+async function loadAIStatus() {
+  try {
+    const r = await fetch(API + '/ai/status');
+    const d = await r.json();
+    aiEnabled = d.enabled;
+    updateAIUI();
+  } catch(e) {
+    document.getElementById('aiStatusText').textContent = 'Error';
+    document.getElementById('aiStatusText').className = 'ai-status off';
+  }
+}
+
+function updateAIUI() {
+  const sw = document.getElementById('aiSwitch');
+  const txt = document.getElementById('aiStatusText');
+  if (aiEnabled) {
+    sw.classList.add('on');
+    txt.textContent = 'Activa';
+    txt.className = 'ai-status on';
+  } else {
+    sw.classList.remove('on');
+    txt.textContent = 'Pausada';
+    txt.className = 'ai-status off';
+  }
+}
+
+async function toggleAI() {
+  const newState = !aiEnabled;
+  const sw = document.getElementById('aiSwitch');
+  const txt = document.getElementById('aiStatusText');
+  sw.style.opacity = '0.5';
+  txt.textContent = '...';
+  try {
+    const r = await fetch(API + '/ai/toggle', {
+      method: 'POST', headers: authHeaders,
+      body: JSON.stringify({ enabled: newState })
+    });
+    if (!r.ok) throw new Error('No autorizado');
+    const d = await r.json();
+    aiEnabled = d.enabled;
+    updateAIUI();
+    toast(aiEnabled ? 'IA activada' : 'IA pausada');
+  } catch(e) {
+    toast('Error: ' + e.message);
+    loadAIStatus();
+  }
+  sw.style.opacity = '';
+}
+
+loadAIStatus();
+setInterval(loadAIStatus, 60000);
 
 function showSection(name) {
   currentSection = name;
@@ -672,8 +787,9 @@ function renderCitas(citas) {
     return;
   }
   // Separar citas por origen
-  const citasIA = citas.filter(c => c.canal && c.canal !== 'presencial');
-  const citasExcel = citas.filter(c => !c.canal || c.canal === 'presencial');
+  const citasReales = citas.filter(c => c.estado !== 'bloqueado');
+  const citasIA = citasReales.filter(c => c.canal && c.canal !== 'presencial');
+  const citasExcel = citasReales.filter(c => !c.canal || c.canal === 'presencial');
 
   function buildRows(lista) {
     return lista.map(c => {
@@ -681,13 +797,14 @@ function renderCitas(citas) {
       const waNum = tel.length > 9 ? tel : '51' + tel;
       return `<tr>
         <td data-label="Hora" class="hora-cell">${fmtHora(c.hora)}</td>
-        <td data-label="Paciente" class="nombre-cell">${esc(c.nombre_paciente)}</td>
+        <td data-label="Paciente" class="nombre-cell">${esc(c.nombre_paciente)} ${tipoPacienteBadge(c.tipo_paciente)}</td>
         <td data-label="Telefono"><a href="tel:${tel}" style="color:var(--primary);font-weight:500">&#9742; ${c.telefono||'-'}</a></td>
         <td data-label="Motivo">${esc(c.motivo||'-')}</td>
         <td data-label="Canal"><span class="badge b-${c.canal||'presencial'}">${c.canal||'presencial'}</span></td>
         <td data-label="Estado"><span class="badge b-${c.estado||'pendiente'}">${estadoLabel(c.estado)}</span></td>
         <td data-label="Acciones"><div class="actions">
           <a href="https://wa.me/${waNum}" target="_blank" class="btn-sm btn-wa">WA</a>
+          ${c.conversation_id ? `<a href="https://chats.alef.company/app/accounts/16/conversations/${c.conversation_id}" target="_blank" class="btn-sm" style="background:#eef2ff;color:#4338ca">CRM</a>` : ''}
           <button class="btn-sm btn-attend" onclick="abrirEditarCita(${c.id})" style="background:#e8f5f0;color:var(--primary)">Editar</button>
           ${c.estado==='pendiente'?`
             <button class="btn-sm btn-confirm" onclick="setEstado(${c.id},'confirmada')">Confirmar</button>
@@ -740,6 +857,7 @@ function abrirEditarCita(id) {
   document.getElementById('cmFecha').value = c.fecha || '';
   document.getElementById('cmHora').value = (c.hora || '').substring(0, 5);
   document.getElementById('cmMotivo').value = c.motivo || '';
+  document.getElementById('cmTipoPaciente').value = c.tipo_paciente || '';
   document.getElementById('cmEstado').value = c.estado || 'pendiente';
   document.getElementById('cmCanal').value = c.canal || 'whatsapp';
   document.getElementById('cmNotas').value = c.notas_equipo || '';
@@ -772,7 +890,8 @@ function renderConvList(convs) {
     const fecha = dt.toLocaleDateString('es-PE',{day:'2-digit',month:'short'});
     const initials = (c.contact_name||'?').split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
     const phone = c.contact_phone ? ` · ${c.contact_phone}` : '';
-    return `<div class="conv-item" onclick="abrirConversacion(${c.conversation_id})">
+    const cwUrl = `https://chats.alef.company/app/accounts/16/conversations/${c.conversation_id}`;
+    return `<a class="conv-item" href="${cwUrl}" target="_blank" style="text-decoration:none;color:inherit">
       <div class="conv-avatar">${initials}</div>
       <div class="conv-info">
         <div class="conv-name">${esc(c.contact_name||'Contacto #'+c.conversation_id)}${phone?' <span style="font-weight:400;font-size:12px;color:var(--text-secondary)">'+esc(phone)+'</span>':''}</div>
@@ -782,9 +901,8 @@ function renderConvList(convs) {
         <div class="conv-time">${fecha} ${hora}</div>
         <span class="conv-count">${c.total_mensajes} msgs</span>
         ${c.cita_creada?'<br><span class="log-cita" style="margin-top:4px">CITA</span>':''}
-        <a href="https://chats.alef.company/app/accounts/16/conversations/${c.conversation_id}" target="_blank" class="btn-chatwoot" onclick="event.stopPropagation()" title="Ver en Chatwoot">&#128488; Chats</a>
       </div>
-    </div>`;
+    </a>`;
   }).join('');
 }
 
@@ -953,6 +1071,13 @@ function fmtHora(h) {
 function estadoLabel(e) {
   return {pendiente:'Pendiente',confirmada:'Confirmada',cancelada:'Cancelada',no_contesto:'No contesto',atendida:'Atendida'}[e]||e||'Pendiente';
 }
+function tipoPacienteLabel(t) {
+  return {nuevo:'Nuevo',primer_control:'1er Control',antiguo:'Antiguo',procedimiento:'Procedimiento',levantamiento:'Levantamiento'}[t]||'';
+}
+function tipoPacienteBadge(t) {
+  if (!t) return '';
+  return `<span class="badge tp-${t}">${tipoPacienteLabel(t)}</span>`;
+}
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function toast(msg) {
   const t = document.getElementById('toast'); t.textContent = msg;
@@ -1044,15 +1169,15 @@ if (window.location.search.includes('gcal=connected')) {
 
 // ── CALENDARIO ──
 const CAL_START_H = 8, CAL_START_M = 30;
-const CAL_END_H_LV = 16, CAL_END_M_LV = 0;   // Lun-Vie hasta 4pm
-const CAL_END_H_SAB = 12, CAL_END_M_SAB = 0;  // Sabado hasta 12pm
 const CAL_SLOT_MIN = 10;
 const CAL_SLOT_PX = 28;
+// Turnos: mañana 8:30-11:00 (Lun-Sab), tarde 14:00-15:40 (solo Lun-Vie)
+const TURNO_MANANA = { sh:8, sm:30, eh:11, em:0 };
+const TURNO_TARDE = { sh:14, sm:0, eh:15, em:40 };
 
 function calEndForDay(d) {
-  // 0=Dom,6=Sab
-  if (d.getDay() === 6) return { h: CAL_END_H_SAB, m: CAL_END_M_SAB };
-  return { h: CAL_END_H_LV, m: CAL_END_M_LV };
+  if (d.getDay() === 6) return { h: TURNO_MANANA.eh, m: TURNO_MANANA.em };
+  return { h: TURNO_TARDE.eh, m: TURNO_TARDE.em };
 }
 let calView = 'week'; // 'week' | 'day'
 let calBaseDate = new Date(); // anchor for current view
@@ -1078,12 +1203,16 @@ function calDaysInView() {
 
 function calTimeSlots() {
   const slots = [];
-  let h = CAL_START_H, m = CAL_START_M;
-  while (h < CAL_END_H_LV || (h === CAL_END_H_LV && m < CAL_END_M_LV)) {
-    slots.push({ h, m });
-    m += CAL_SLOT_MIN;
-    if (m >= 60) { h++; m = 0; }
+  function addRange(sh, sm, eh, em) {
+    let h = sh, m = sm;
+    while (h < eh || (h === eh && m <= em)) {
+      slots.push({ h, m });
+      m += CAL_SLOT_MIN;
+      if (m >= 60) { h++; m -= 60; }
+    }
   }
+  addRange(TURNO_MANANA.sh, TURNO_MANANA.sm, TURNO_MANANA.eh, TURNO_MANANA.em);
+  addRange(TURNO_TARDE.sh, TURNO_TARDE.sm, TURNO_TARDE.eh, TURNO_TARDE.em);
   return slots;
 }
 
@@ -1179,22 +1308,32 @@ async function calRender() {
     const dayEnd = calEndForDay(d);
     const isDomingo = d.getDay() === 0;
     let slotsHtml = '';
+    const bloqueados = dayCitas.filter(c => c.estado === 'bloqueado').map(c => (c.hora||'').substring(0,5));
+    const isSabado = d.getDay() === 6;
     slots.forEach((s, i) => {
-      const outOfHours = isDomingo || (s.h > dayEnd.h || (s.h === dayEnd.h && s.m >= dayEnd.m));
-      slotsHtml += `<div class="cal-slot${outOfHours?' cal-closed':''}" data-date="${dateStr}" data-time="${String(s.h).padStart(2,'0')}:${String(s.m).padStart(2,'0')}" ${outOfHours?'':'onclick="calSlotClick(this)"'}></div>`;
+      const isTarde = s.h >= TURNO_TARDE.sh;
+      const outOfHours = isDomingo || (isSabado && isTarde);
+      const timeStr = `${String(s.h).padStart(2,'0')}:${String(s.m).padStart(2,'0')}`;
+      const label12 = `${s.h > 12 ? s.h-12 : (s.h === 0 ? 12 : s.h)}:${String(s.m).padStart(2,'0')}`;
+      const isBloqueado = bloqueados.includes(timeStr);
+      let cls = 'cal-slot';
+      if (outOfHours) cls += ' cal-closed';
+      else if (isBloqueado) cls += ' cal-bloqueado';
+      const clickable = !outOfHours;
+      slotsHtml += `<div class="${cls}" data-date="${dateStr}" data-time="${timeStr}" ${clickable?'onclick="calSlotClick(this)"':''}><span class="slot-label">${isBloqueado?'&#128683; '+label12:(outOfHours?'':label12)}</span></div>`;
     });
 
     // Events
     let eventsHtml = '';
     dayCitas.forEach(c => {
-      if (c.estado === 'cancelada') return;
+      if (c.estado === 'cancelada' || c.estado === 'bloqueado') return;
       const hp = (c.hora||'08:30').split(':');
       const h = parseInt(hp[0]), m = parseInt(hp[1] || 0);
       const top = calMinToY(h, m);
       const height = (10 / CAL_SLOT_MIN) * CAL_SLOT_PX; // 10 min cita
       const timeStr = fmtHora(c.hora);
-      eventsHtml += `<div class="cal-event est-${c.estado||'pendiente'}" style="top:${top}px;height:${Math.max(height, 28)}px" onclick="event.stopPropagation();calEditCita(${c.id})" title="${esc(c.nombre_paciente)} - ${timeStr}">
-        <div class="ev-time">${timeStr}</div>
+      eventsHtml += `<div class="cal-event est-${c.estado||'pendiente'}" style="top:${top}px;height:${Math.max(height, 28)}px" onclick="event.stopPropagation();calEditCita(${c.id})" title="${esc(c.nombre_paciente)} - ${timeStr}${c.tipo_paciente?' ('+tipoPacienteLabel(c.tipo_paciente)+')':''}">
+        <div class="ev-time">${timeStr} ${tipoPacienteBadge(c.tipo_paciente)}</div>
         <div class="ev-name">${esc(c.nombre_paciente)}</div>
         ${height > 36 ? `<div class="ev-motivo">${esc(c.motivo||'')}</div>` : ''}
       </div>`;
@@ -1237,16 +1376,56 @@ async function calRender() {
   </div>`;
 }
 
+let quickBlockMode = false;
+
+function toggleQuickBlock() {
+  quickBlockMode = !quickBlockMode;
+  const btn = document.getElementById('quickBlockBtn');
+  btn.classList.toggle('active', quickBlockMode);
+  btn.innerHTML = quickBlockMode ? '&#128683; MODO OCUPADO (click slots)' : '&#128683; Ocupado Rapido';
+  if (quickBlockMode) toast('Modo Ocupado Rapido: click en slots para bloquear/desbloquear');
+}
+
+async function quickBlockSlot(fecha, hora, isBloqueado) {
+  try {
+    if (isBloqueado) {
+      await fetch(API + '/slots/bloquear', { method:'DELETE', headers:authHeaders, body:JSON.stringify({fecha, hora}) });
+      toast('Slot desbloqueado: ' + hora);
+    } else {
+      const r = await fetch(API + '/slots/bloquear', { method:'POST', headers:authHeaders, body:JSON.stringify({fecha, hora}) });
+      const d = await r.json();
+      if (!d.ok) { toast('Slot ya ocupado'); return; }
+      toast('Slot bloqueado: ' + hora);
+    }
+    calRender();
+  } catch(e) { toast('Error: ' + e.message); }
+}
+
 function calSlotClick(el) {
-  const date = el.dataset.date;
-  const time = el.dataset.time;
+  const fecha = el.dataset.date;
+  const hora = el.dataset.time;
+  const isBloqueado = el.classList.contains('cal-bloqueado');
+
+  if (quickBlockMode) {
+    quickBlockSlot(fecha, hora, isBloqueado);
+    return;
+  }
+
+  if (isBloqueado) {
+    if (confirm('Este slot esta bloqueado. ¿Desbloquear?')) {
+      quickBlockSlot(fecha, hora, true);
+    }
+    return;
+  }
+
   document.getElementById('cmEditId').value = '';
   document.getElementById('calModalTitle').textContent = 'Nueva Cita';
   document.getElementById('cmNombre').value = '';
   document.getElementById('cmTelefono').value = '';
-  document.getElementById('cmFecha').value = date;
-  document.getElementById('cmHora').value = time;
+  document.getElementById('cmFecha').value = fecha;
+  document.getElementById('cmHora').value = hora;
   document.getElementById('cmMotivo').value = '';
+  document.getElementById('cmTipoPaciente').value = '';
   document.getElementById('cmEstado').value = 'pendiente';
   document.getElementById('cmCanal').value = 'web';
   document.getElementById('cmNotas').value = '';
@@ -1261,6 +1440,7 @@ function calOpenCreate() {
   document.getElementById('cmFecha').value = calFmt(calBaseDate);
   document.getElementById('cmHora').value = '09:00';
   document.getElementById('cmMotivo').value = '';
+  document.getElementById('cmTipoPaciente').value = '';
   document.getElementById('cmEstado').value = 'pendiente';
   document.getElementById('cmCanal').value = 'web';
   document.getElementById('cmNotas').value = '';
@@ -1287,6 +1467,7 @@ async function calSaveCita() {
     fecha: fecha,
     hora: hora,
     motivo: document.getElementById('cmMotivo').value.trim(),
+    tipo_paciente: document.getElementById('cmTipoPaciente').value || null,
     estado: document.getElementById('cmEstado').value,
     notas: document.getElementById('cmNotas').value.trim(),
     notas_equipo: document.getElementById('cmNotas').value.trim(),

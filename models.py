@@ -22,6 +22,14 @@ class Canal(str, Enum):
     WEB = "web"
 
 
+class TipoPaciente(str, Enum):
+    NUEVO = "nuevo"
+    PRIMER_CONTROL = "primer_control"
+    ANTIGUO = "antiguo"
+    PROCEDIMIENTO = "procedimiento"
+    LEVANTAMIENTO = "levantamiento"
+
+
 class Cita(BaseModel):
     id: Optional[int] = None
     nombre_paciente: str
@@ -31,6 +39,7 @@ class Cita(BaseModel):
     motivo: Optional[str] = None
     canal: Canal = Canal.WHATSAPP
     estado: EstadoCita = EstadoCita.PENDIENTE
+    tipo_paciente: Optional[str] = None
     conversation_id: Optional[int] = None
     contact_id: Optional[int] = None
     notas_equipo: Optional[str] = None
@@ -58,3 +67,4 @@ class ConversationState(BaseModel):
     messages: list[dict] = []
     cita_creada: bool = False
     handoff: bool = False  # True = supervisor tomó control, IA no responde
+    handoff_at: Optional[str] = None  # ISO timestamp de cuando se activo handoff

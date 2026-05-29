@@ -193,6 +193,16 @@ async def get_slots_ocupados(fecha: date) -> list[time]:
         return [r["hora"] for r in rows]
 
 
+async def contar_citas_dia(fecha: date) -> int:
+    """Retorna el número de citas activas (no canceladas) de un día."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT COUNT(*) FROM citas WHERE fecha = $1 AND estado NOT IN ('cancelada')",
+            fecha,
+        )
+
+
 def generar_slots(fecha: date) -> list[time]:
     """Genera slots por turnos: mañana 8:30-11:00 (Lun-Sab), tarde 14:00-15:40 (solo Lun-Vie)."""
     slots = []
@@ -262,6 +272,13 @@ async def get_slots_disponibles(fecha: date, gcal_busy: list | None = None) -> l
     todos = generar_slots(fecha)
     ocupados = await get_slots_ocupados(fecha)
     disponibles = [s for s in todos if s not in ocupados]
+
+    # Si es hoy, filtrar slots que ya pasaron
+    from zoneinfo import ZoneInfo
+    ahora = datetime.now(ZoneInfo("America/Lima"))
+    if fecha == ahora.date():
+        hora_actual = ahora.time()
+        disponibles = [s for s in disponibles if s > hora_actual]
 
     # Filtrar slots ocupados en Google Calendar
     if gcal_busy:

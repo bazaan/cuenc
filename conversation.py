@@ -50,7 +50,7 @@ async def delete_state(conversation_id: int):
 async def add_message(state: ConversationState, role: str, content: str) -> ConversationState:
     """Agrega un mensaje al historial (mantiene ultimos 10)."""
     state.messages.append({"role": role, "content": content})
-    if len(state.messages) > 10:
-        state.messages = state.messages[-10:]
+    if len(state.messages) > 16:
+        state.messages = state.messages[-16:]
     await save_state(state)
     return state
