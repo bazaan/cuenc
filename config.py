@@ -14,7 +14,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 # --- OpenAI API ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 AI_MODEL = os.getenv("AI_MODEL", "gpt-5-mini")
-AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "250"))  # Respuestas cortas + JSON cita
+AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "500"))  # Respuestas + JSON cita (increased for gpt-5-mini)
 
 # --- Redis (estado de conversacion) ---
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
