@@ -331,6 +331,7 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
             log.info(f"[Conv {conversation_id}] HANDOFF nuevo detectado en Chatwoot (pasar_supervisor=si) — IA no responde")
             return
 
+    is_first_message = state is None
     if state is None:
         state = ConversationState(
             contact_id=contact_id,
@@ -342,6 +343,29 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
         )
         # Marcar en Chatwoot que la IA está activa en esta conversación
         await set_custom_attributes(conversation_id, {"ai_status": "ia_activa", "pasar_supervisor": "no"})
+
+    # Enviar saludo inicial solo en conversaciones REALMENTE nuevas
+    # (no cuando Redis TTL expiró en una conversación existente)
+    if is_first_message:
+        # Verificar si hay interacciones previas en BD
+        prev = await appointments.get_hilo_conversacion(conversation_id)
+        if not prev:
+            saludo = (
+                "Gracias por comunicarte con nosotros.\n"
+                "Somos la *Clínica Respira Vida* especializada en Neumología y Alergias Respiratorias.\n\n"
+                "Por favor escriba la opción que necesite:\n\n"
+                "▪️ Costos y disponibilidad de citas\n"
+                "▪️ Horario de citas\n"
+                "▪️ Dirección\n"
+                "▪️ Interconsulta laboral\n"
+                "▪️ Otros\n\n"
+                "Recuerde que la atención es solo presencial y con previa cita."
+            )
+            await send_message(conversation_id, saludo)
+            state = await add_message(state, "assistant", saludo)
+            log.info(f"[Conv {conversation_id}] Saludo inicial enviado (conversación nueva)")
+        else:
+            log.info(f"[Conv {conversation_id}] Estado Redis expirado, reconectando (conv existente, sin saludo)")
 
     # Actualizar datos de contacto si tenemos nuevos
     if contact_name and not state.contact_name:
