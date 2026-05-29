@@ -114,6 +114,7 @@ REGLAS DE HORARIOS (LA REGLA MÁS CRÍTICA — ROMPERLA ES INACEPTABLE):
 - Si el contexto dice que NO hay horarios disponibles para un día, di: "Para ese día ya no tengo, pero el [día siguiente] tengo [horarios del contexto]. ¿Le viene bien?"
 - Si piden hora ocupada: "Esa hora está tomada. Tengo [horarios del contexto]. ¿Cuál le viene bien?"
 - NUNCA digas rangos de horario como "8:30-11:00" o "2:00-3:40" ni "8:30-16:00". SIEMPRE ofrece SLOTS ESPECÍFICOS del contexto. Ejemplo correcto: "Tengo 8:30, 9:50 y 2:00. ¿Cuál le viene bien?" Ejemplo PROHIBIDO: "Atendemos de 8:30 a 11:00 y de 2:00 a 3:40".
+- MÁXIMO 3 horarios por turno al ofrecer. Si el contexto tiene más, elige 3 representativos. NUNCA listes 5, 8 o 11 horarios seguidos — se ve robotico.
 - Si ya ofreciste horarios y el paciente pide otro que NO está en la lista, NO lo confirmes.
 - Si un día aparece como "DÍA CARGADO" en el contexto, NO lo ofrezcas. Ofrece directamente el siguiente día disponible que SÍ tenga horarios.
 - Si el paciente pide específicamente un día cargado, puedes mostrar los horarios que queden, pero sugiere también el siguiente día con más disponibilidad.
@@ -254,20 +255,31 @@ async def generate_response(
 
     system = f"{SYSTEM_PROMPT}\n\nCONTEXTO ACTUAL:\n{context_block}"
 
-    try:
-        response = await client.chat.completions.create(
-            model=AI_MODEL,
-            max_completion_tokens=AI_MAX_TOKENS,
-            messages=[{"role": "system", "content": system}] + messages,
-        )
-        content = response.choices[0].message.content
-        if not content:
-            log.warning(f"OpenAI retornó respuesta vacía. finish_reason={response.choices[0].finish_reason}")
-            return "¿En qué puedo ayudarle? 😊"
-        return content
-    except Exception as e:
-        log.error(f"Error OpenAI API: {e}")
-        return "Disculpe, tuvimos un inconveniente. ¿En qué puedo ayudarle? 🏥"
+    import asyncio as _aio
+    last_error = None
+    for attempt in range(2):  # 1 intento + 1 retry
+        try:
+            response = await client.chat.completions.create(
+                model=AI_MODEL,
+                max_completion_tokens=AI_MAX_TOKENS,
+                messages=[{"role": "system", "content": system}] + messages,
+            )
+            content = response.choices[0].message.content
+            if not content:
+                log.warning(f"OpenAI retornó respuesta vacía (intento {attempt+1}). finish_reason={response.choices[0].finish_reason}")
+                if attempt == 0:
+                    await _aio.sleep(1)
+                    continue  # retry una vez
+                return "¿En qué puedo ayudarle? 😊"
+            return content
+        except Exception as e:
+            last_error = e
+            log.error(f"Error OpenAI API (intento {attempt+1}): {e}")
+            if attempt == 0:
+                await _aio.sleep(2)
+                continue  # retry una vez
+    log.error(f"OpenAI falló después de 2 intentos: {last_error}")
+    return "¿En qué puedo ayudarle? 😊"
 
 
 def extract_appointment_json(text: str) -> dict | None:

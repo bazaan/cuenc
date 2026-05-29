@@ -681,12 +681,14 @@ async def webhook_chatwoot(request: Request):
             removed_labels = prev_labels - curr_labels
             log.info(f"[Conv {conv_id}] Labels changed: added={added_labels}, removed={removed_labels}")
 
-            # Label "pasar_supervisor" o "supervisor" agregado → activar handoff
-            if ("pasar_supervisor" in added_labels or "supervisor" in added_labels) and state and not state.handoff:
+            # Label "pasar_supervisor", "supervisor" o "cita_agendada" agregado → activar handoff
+            if ("pasar_supervisor" in added_labels or "supervisor" in added_labels or "cita_agendada" in added_labels) and state and not state.handoff:
                 state.handoff = True
                 state.handoff_at = datetime.now().isoformat()
+                state.cita_creada = "cita_agendada" in added_labels
                 await save_state(state)
-                await set_custom_attributes(conv_id, {"ai_status": "supervisor", "pasar_supervisor": "si"})
+                ai_status = "cita_agendada" if "cita_agendada" in added_labels else "supervisor"
+                await set_custom_attributes(conv_id, {"ai_status": ai_status, "pasar_supervisor": "si"})
                 await appointments.cerrar_seguimiento(conv_id)
                 await appointments.registrar_alerta(tipo="supervisor", conversation_id=conv_id, detalle="Handoff activado via label")
                 log.info(f"[Conv {conv_id}] Handoff activado via LABEL — IA pausada")
