@@ -29,7 +29,7 @@ import gcal
 from config import GOOGLE_CLIENT_ID
 
 # ─── Control: pausar/reanudar IA ───
-AI_ENABLED = os.getenv("AI_ENABLED", "false").lower() == "true"  # Controlar vía env o API
+AI_ENABLED = os.getenv("AI_ENABLED", "true").lower() == "true"  # Controlar vía env o API
 
 # ─── Debounce: acumular mensajes rápidos ───
 DEBOUNCE_SECONDS = 30
