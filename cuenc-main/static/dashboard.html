@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard — Clinica Respira Vida</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:wght@600;700&display=swap');
+  :root {
+    --bg: #f8f9fc; --card: #fff; --primary: #1a6b5a; --primary-light: #e8f5f0;
+    --primary-dark: #0f4a3e; --accent: #e8913a; --accent-light: #fff4e8;
+    --text: #1a1d23; --text-secondary: #6b7280; --border: #e5e7eb;
+    --danger: #dc2626; --danger-light: #fef2f2; --success: #059669; --success-light: #ecfdf5;
+    --warning: #d97706; --warning-light: #fffbeb; --neutral: #6b7280; --neutral-light: #f3f4f6;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06); --shadow-lg: 0 4px 12px rgba(0,0,0,0.08);
+    --radius: 12px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; display:flex; }
+
+  /* Sidebar */
+  .sidebar {
+    width: 240px; background: var(--primary-dark); color: white;
+    display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 50;
+  }
+  .sidebar-header { padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+  .sidebar-header h2 { font-family:'Fraunces',serif; font-size:16px; }
+  .sidebar-header p { font-size:11px; opacity:0.6; margin-top:2px; }
+  .sidebar-nav { flex:1; padding:12px 0; }
+  .nav-item {
+    display:flex; align-items:center; gap:10px; padding:11px 20px;
+    color:rgba(255,255,255,0.7); text-decoration:none; font-size:14px; font-weight:500;
+    cursor:pointer; transition:all 0.15s; border:none; background:none; width:100%; text-align:left;
+  }
+  .nav-item:hover { background:rgba(255,255,255,0.08); color:white; }
+  .nav-item.active { background:rgba(255,255,255,0.12); color:white; font-weight:600; }
+  .nav-item .icon { font-size:18px; width:24px; text-align:center; }
+  .nav-item .badge {
+    margin-left:auto; background:var(--accent); color:white;
+    font-size:11px; font-weight:700; padding:2px 8px; border-radius:10px;
+  }
+  .sidebar-footer {
+    padding:16px 20px; border-top:1px solid rgba(255,255,255,0.1);
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .sidebar-footer .user-info { font-size:13px; }
+  .sidebar-footer .user-role { font-size:11px; opacity:0.6; }
+  .btn-logout {
+    background:rgba(255,255,255,0.1); border:none; color:white;
+    padding:6px 12px; border-radius:8px; font-size:12px; cursor:pointer; font-family:inherit;
+  }
+  .btn-logout:hover { background:rgba(255,255,255,0.2); }
+
+  /* Main */
+  .main { margin-left:240px; flex:1; min-height:100vh; }
+  .topbar {
+    background:var(--card); border-bottom:1px solid var(--border);
+    padding:16px 24px; display:flex; align-items:center; justify-content:space-between;
+    position:sticky; top:0; z-index:40;
+  }
+  .topbar h1 { font-family:'Fraunces',serif; font-size:20px; }
+  .topbar-right { display:flex; align-items:center; gap:12px; }
+  .date-nav {
+    display:flex; align-items:center; gap:6px; background:var(--bg);
+    border-radius:10px; padding:4px 8px; border:1px solid var(--border);
+  }
+  .date-nav button {
+    background:none; border:none; cursor:pointer; width:28px; height:28px;
+    border-radius:6px; font-size:16px; color:var(--text); display:flex; align-items:center; justify-content:center;
+  }
+  .date-nav button:hover { background:var(--border); }
+  .date-nav input[type="date"] {
+    border:none; background:transparent; font-family:inherit; font-size:13px;
+    font-weight:600; color:var(--text); cursor:pointer; padding:2px 4px;
+  }
+  .btn-refresh {
+    background:var(--primary-light); border:none; color:var(--primary);
+    width:36px; height:36px; border-radius:10px; cursor:pointer; font-size:16px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .btn-refresh:hover { background:#d0ebe3; }
+
+  .content { padding:20px 24px; max-width:1200px; margin:0 auto; }
+  .section { display:none; }
+  .section.active { display:block; }
+
+  /* Stats */
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:20px; }
+  .stat-card {
+    background:var(--card); border-radius:var(--radius); padding:16px 18px;
+    box-shadow:var(--shadow); border:1px solid var(--border);
+  }
+  .stat-card .label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:var(--text-secondary); }
+  .stat-card .value { font-family:'Fraunces',serif; font-size:28px; font-weight:700; margin-top:4px; }
+  .stat-card.s-total .value { color:var(--primary); }
+  .stat-card.s-pending .value { color:var(--accent); }
+  .stat-card.s-confirmed .value { color:var(--success); }
+  .stat-card.s-attended .value { color:var(--primary-dark); }
+
+  /* Table */
+  table { width:100%; border-collapse:separate; border-spacing:0; background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow); border:1px solid var(--border); overflow:hidden; }
+  thead th { background:var(--bg); padding:10px 14px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--text-secondary); text-align:left; border-bottom:1px solid var(--border); }
+  tbody td { padding:12px 14px; font-size:13px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  tbody tr:last-child td { border-bottom:none; }
+  tbody tr:hover { background:#fafbfd; }
+  .hora-cell { font-weight:700; font-size:14px; color:var(--primary-dark); white-space:nowrap; }
+  .nombre-cell { font-weight:600; }
+
+  /* Badges */
+  .badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.3px; }
+  .b-whatsapp { background:#dcfce7; color:#166534; } .b-instagram { background:#fce7f3; color:#9d174d; }
+  .b-messenger { background:#dbeafe; color:#1e40af; } .b-tiktok { background:#f3e8ff; color:#6b21a8; }
+  .b-pendiente { background:var(--warning-light); color:var(--warning); }
+  .b-confirmada { background:var(--success-light); color:var(--success); }
+  .b-cancelada { background:var(--danger-light); color:var(--danger); }
+  .b-no_contesto { background:var(--neutral-light); color:var(--neutral); }
+  .b-atendida { background:var(--primary-light); color:var(--primary); }
+
+  /* Action buttons */
+  .actions { display:flex; gap:4px; flex-wrap:wrap; }
+  .btn-sm {
+    border:none; padding:5px 10px; border-radius:6px; font-size:11px;
+    font-weight:600; cursor:pointer; font-family:inherit; transition:all .15s;
+  }
+  .btn-confirm { background:var(--success-light); color:var(--success); }
+  .btn-cancel { background:var(--danger-light); color:var(--danger); }
+  .btn-noans { background:var(--neutral-light); color:var(--neutral); }
+  .btn-attend { background:var(--primary-light); color:var(--primary); }
+  .btn-wa { background:var(--primary); color:white; text-decoration:none; display:inline-flex; align-items:center; gap:3px; }
+  .btn-chatwoot { background:#1f93ff; color:white; text-decoration:none; display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:600; padding:4px 10px; border-radius:8px; margin-top:4px; white-space:nowrap; transition:background 0.15s; }
+  .btn-chatwoot:hover { background:#1a7de0; }
+
+  /* Log cards */
+  .log-card {
+    background:var(--card); border-radius:var(--radius); border:1px solid var(--border);
+    box-shadow:var(--shadow); padding:14px 16px; margin-bottom:8px;
+    display:grid; grid-template-columns:140px 1fr; gap:12px;
+  }
+  .log-meta { display:flex; flex-direction:column; gap:3px; }
+  .log-time { font-size:12px; font-weight:700; color:var(--primary-dark); }
+  .log-contact { font-size:13px; font-weight:600; }
+  .log-badges { display:flex; gap:4px; margin-top:2px; }
+  .log-tipo { font-size:10px; font-weight:700; text-transform:uppercase; padding:2px 8px; border-radius:10px; }
+  .lt-texto { background:var(--neutral-light); color:var(--neutral); }
+  .lt-audio { background:#ede9fe; color:#7c3aed; }
+  .lt-imagen { background:#fce7f3; color:#be185d; }
+  .lt-seguimiento { background:#fff7ed; color:#c2410c; }
+  .log-cita { background:var(--success-light); color:var(--success); font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; }
+  .log-messages { display:flex; flex-direction:column; gap:4px; }
+  .log-label { font-size:10px; font-weight:700; text-transform:uppercase; color:var(--text-secondary); letter-spacing:.3px; }
+  .log-msg { font-size:13px; line-height:1.4; padding:8px 12px; border-radius:8px; word-break:break-word; }
+  .log-user { background:#e8f5f0; color:var(--primary-dark); }
+  .log-agent { background:var(--bg); border:1px solid var(--border); }
+
+  /* Conversation list */
+  .conv-item {
+    background:var(--card); border-radius:var(--radius); border:1px solid var(--border);
+    box-shadow:var(--shadow); padding:14px 18px; margin-bottom:8px; cursor:pointer;
+    display:flex; align-items:center; gap:14px; transition:all .15s;
+  }
+  .conv-item:hover { border-color:var(--primary); box-shadow:var(--shadow-lg); }
+  .conv-avatar {
+    width:42px; height:42px; border-radius:50%; background:var(--primary-light);
+    display:flex; align-items:center; justify-content:center; font-size:18px;
+    font-weight:700; color:var(--primary); flex-shrink:0;
+  }
+  .conv-info { flex:1; min-width:0; }
+  .conv-name { font-weight:600; font-size:14px; }
+  .conv-preview { font-size:12px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+  .conv-right { text-align:right; flex-shrink:0; }
+  .conv-time { font-size:11px; color:var(--text-secondary); font-weight:500; }
+  .conv-count { font-size:11px; background:var(--primary-light); color:var(--primary); padding:2px 8px; border-radius:10px; font-weight:700; margin-top:4px; display:inline-block; }
+
+  /* Thread view */
+  .thread-header {
+    background:var(--card); border-radius:var(--radius); border:1px solid var(--border);
+    box-shadow:var(--shadow); padding:16px 20px; margin-bottom:16px;
+    display:flex; align-items:center; gap:14px;
+  }
+  .thread-back {
+    background:var(--bg); border:1px solid var(--border); border-radius:8px;
+    width:36px; height:36px; display:flex; align-items:center; justify-content:center;
+    cursor:pointer; font-size:18px; flex-shrink:0;
+  }
+  .thread-back:hover { background:var(--border); }
+  .thread-contact { flex:1; }
+  .thread-contact h3 { font-size:16px; font-weight:600; }
+  .thread-contact p { font-size:12px; color:var(--text-secondary); margin-top:2px; }
+  .thread-body { max-width:700px; }
+  .thread-bubble {
+    margin-bottom:10px; max-width:80%;
+  }
+  .thread-bubble.user { margin-right:auto; }
+  .thread-bubble.agent { margin-left:auto; }
+  .thread-bubble .bubble-content {
+    padding:10px 14px; border-radius:12px; font-size:13px; line-height:1.5;
+    word-break:break-word;
+  }
+  .thread-bubble.user .bubble-content { background:#e8f5f0; color:var(--primary-dark); border-bottom-left-radius:4px; }
+  .thread-bubble.agent .bubble-content { background:var(--card); border:1px solid var(--border); border-bottom-right-radius:4px; }
+  .thread-bubble .bubble-meta {
+    font-size:10px; color:var(--text-secondary); margin-top:3px;
+    display:flex; align-items:center; gap:6px;
+  }
+  .thread-bubble.agent .bubble-meta { justify-content:flex-end; }
+
+  /* Users section */
+  .user-form { background:var(--card); border-radius:var(--radius); padding:20px; box-shadow:var(--shadow); border:1px solid var(--border); margin-bottom:20px; }
+  .user-form h3 { font-size:15px; margin-bottom:12px; }
+  .form-row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  .form-field { flex:1; min-width:140px; }
+  .form-field label { display:block; font-size:11px; font-weight:600; text-transform:uppercase; color:var(--text-secondary); margin-bottom:4px; }
+  .form-field input, .form-field select {
+    width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:8px;
+    font-family:inherit; font-size:13px; outline:none;
+  }
+  .form-field input:focus, .form-field select:focus { border-color:var(--primary); }
+  .btn-add {
+    background:var(--primary); color:white; border:none; padding:8px 18px;
+    border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; white-space:nowrap;
+  }
+
+  /* Empty/Loading */
+  .empty { text-align:center; padding:50px 20px; color:var(--text-secondary); }
+  .empty-icon { font-size:40px; margin-bottom:10px; }
+  .empty h3 { font-family:'Fraunces',serif; font-size:16px; color:var(--text); margin-bottom:4px; }
+  .loading { text-align:center; padding:30px; color:var(--text-secondary); font-size:13px; }
+
+  /* Toast */
+  .toast {
+    position:fixed; bottom:20px; right:20px; background:var(--primary-dark); color:white;
+    padding:10px 18px; border-radius:10px; font-size:13px; font-weight:500;
+    box-shadow:var(--shadow-lg); transform:translateY(60px); opacity:0; transition:all .3s; z-index:100;
+  }
+  .toast.show { transform:translateY(0); opacity:1; }
+
+  /* Calendar */
+  .cal-toolbar {
+    display:flex; justify-content:space-between; align-items:center;
+    margin-bottom:16px; flex-wrap:wrap; gap:10px;
+  }
+  .cal-toolbar-left, .cal-toolbar-right { display:flex; align-items:center; gap:6px; }
+  .cal-range { font-family:'Fraunces',serif; font-size:16px; font-weight:600; margin-left:8px; }
+  .cal-btn {
+    background:var(--card); border:1px solid var(--border); border-radius:8px;
+    padding:7px 14px; font-family:inherit; font-size:13px; font-weight:600;
+    cursor:pointer; color:var(--text); transition:all .15s;
+  }
+  .cal-btn:hover { border-color:var(--primary); color:var(--primary); }
+  .cal-btn.cal-nav { padding:7px 10px; font-size:18px; line-height:1; }
+  .cal-view-btn.active { background:var(--primary); color:white; border-color:var(--primary); }
+  .cal-create-btn { background:var(--primary); color:white; border-color:var(--primary); }
+  .cal-create-btn:hover { background:var(--primary-dark); border-color:var(--primary-dark); color:white; }
+
+  .cal-week {
+    display:grid; background:var(--card); border-radius:var(--radius);
+    box-shadow:var(--shadow); border:1px solid var(--border); overflow:hidden;
+  }
+  .cal-week.view-week { grid-template-columns:56px repeat(6, 1fr); }
+  .cal-week.view-day { grid-template-columns:56px 1fr; }
+
+  .cal-header-cell {
+    padding:10px 4px; text-align:center; font-size:11px; font-weight:700;
+    text-transform:uppercase; letter-spacing:.4px; color:var(--text-secondary);
+    border-bottom:2px solid var(--border); background:var(--bg);
+  }
+  .cal-header-cell .day-num {
+    display:block; font-family:'Fraunces',serif; font-size:20px; font-weight:700;
+    color:var(--text); line-height:1.2; margin-top:2px;
+  }
+  .cal-header-cell.today .day-num {
+    background:var(--primary); color:white; width:32px; height:32px;
+    border-radius:50%; display:inline-flex; align-items:center; justify-content:center;
+    font-size:16px;
+  }
+  .cal-time-gutter {
+    border-right:1px solid var(--border); background:var(--bg);
+  }
+  .cal-time-label {
+    height:28px; padding:0 8px; display:flex; align-items:flex-start;
+    justify-content:flex-end; font-size:10px; font-weight:600;
+    color:var(--text-secondary); transform:translateY(-6px);
+  }
+  .cal-day-col {
+    border-right:1px solid var(--border); position:relative; min-height:0;
+  }
+  .cal-day-col:last-child { border-right:none; }
+  .cal-slot {
+    height:28px; border-bottom:1px solid transparent; position:relative; cursor:pointer;
+  }
+  .cal-slot:nth-child(3n+1) { border-bottom-color:#f0f1f3; }
+  .cal-slot:hover { background:var(--primary-light); }
+  .cal-slot.half { border-bottom:1px dashed #f0f1f3; }
+  .cal-slot.cal-closed { background:repeating-linear-gradient(135deg,#f9fafb,#f9fafb 4px,#f3f4f6 4px,#f3f4f6 8px); pointer-events:none; cursor:default; }
+  .cal-slot.cal-closed:hover { background:repeating-linear-gradient(135deg,#f9fafb,#f9fafb 4px,#f3f4f6 4px,#f3f4f6 8px); }
+
+  .cal-event {
+    position:absolute; left:2px; right:2px; border-radius:4px; padding:2px 5px;
+    font-size:10px; line-height:1.2; overflow:hidden; cursor:pointer;
+    z-index:5; transition:box-shadow .15s; border-left:3px solid;
+  }
+  .cal-event:hover { box-shadow:0 2px 8px rgba(0,0,0,0.15); z-index:10; }
+  .cal-event .ev-time { font-weight:700; }
+  .cal-event .ev-name { font-weight:600; }
+  .cal-event .ev-motivo { font-weight:400; opacity:0.8; }
+  .cal-event.est-pendiente { background:#fff7ed; border-color:var(--warning); color:#92400e; }
+  .cal-event.est-confirmada { background:#ecfdf5; border-color:var(--success); color:#065f46; }
+  .cal-event.est-cancelada { background:#fef2f2; border-color:var(--danger); color:#991b1b; opacity:0.6; }
+  .cal-event.est-no_contesto { background:#f3f4f6; border-color:var(--neutral); color:#374151; opacity:0.7; }
+  .cal-event.est-atendida { background:#e8f5f0; border-color:var(--primary); color:var(--primary-dark); }
+
+  .cal-now-line {
+    position:absolute; left:0; right:0; height:2px; background:var(--danger);
+    z-index:8; pointer-events:none;
+  }
+  .cal-now-line::before {
+    content:''; position:absolute; left:-4px; top:-4px;
+    width:10px; height:10px; border-radius:50%; background:var(--danger);
+  }
+
+  /* Google Calendar events */
+  .cal-event.est-gcal {
+    background:rgba(66,133,244,0.12); border-color:#4285f4; color:#1a56db;
+    border-left:3px solid #4285f4;
+  }
+  .cal-event.est-gcal .ev-time { color:#4285f4; }
+
+  /* GCal connection bar */
+  .gcal-bar {
+    display:flex; align-items:center; gap:10px; padding:10px 16px;
+    background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
+    margin-bottom:12px; box-shadow:var(--shadow);
+  }
+  .gcal-bar .gcal-icon { font-size:20px; }
+  .gcal-bar .gcal-info { flex:1; font-size:13px; }
+  .gcal-bar .gcal-email { font-weight:600; color:var(--primary); }
+  .gcal-bar .gcal-status { font-size:11px; color:var(--text-secondary); }
+  .gcal-btn-connect {
+    background:#4285f4; color:white; border:none; border-radius:8px;
+    padding:8px 16px; font-family:inherit; font-size:13px; font-weight:600;
+    cursor:pointer; display:flex; align-items:center; gap:6px;
+  }
+  .gcal-btn-connect:hover { background:#3367d6; }
+  .gcal-btn-disconnect {
+    background:var(--danger-light); color:var(--danger); border:none; border-radius:8px;
+    padding:6px 12px; font-family:inherit; font-size:12px; font-weight:600; cursor:pointer;
+  }
+
+  /* Modal */
+  .cal-modal-overlay {
+    position:fixed; top:0; left:0; right:0; bottom:0;
+    background:rgba(0,0,0,0.4); z-index:200;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .cal-modal {
+    background:var(--card); border-radius:16px; width:420px; max-width:95vw;
+    box-shadow:0 20px 60px rgba(0,0,0,0.2); overflow:hidden;
+  }
+  .cal-modal-header {
+    padding:18px 20px; border-bottom:1px solid var(--border);
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .cal-modal-header h3 { font-family:'Fraunces',serif; font-size:18px; }
+  .cal-modal-close {
+    background:none; border:none; font-size:24px; cursor:pointer;
+    color:var(--text-secondary); padding:0 4px; line-height:1;
+  }
+  .cal-modal-body { padding:20px; display:flex; flex-direction:column; gap:12px; }
+  .cal-modal-body .form-field textarea {
+    width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:8px;
+    font-family:inherit; font-size:13px; outline:none; resize:vertical;
+  }
+  .cal-modal-body .form-field textarea:focus { border-color:var(--primary); }
+  .cm-row { display:flex; gap:10px; }
+  .cm-row .form-field { flex:1; }
+  .cal-modal-footer {
+    padding:14px 20px; border-top:1px solid var(--border);
+    display:flex; justify-content:flex-end; gap:8px;
+  }
+
+  /* Mobile */
+  @media (max-width:768px) {
+    .sidebar { width:60px; }
+    .sidebar-header h2, .sidebar-header p, .nav-item span:not(.icon), .nav-item .badge, .sidebar-footer .user-info, .sidebar-footer .user-role { display:none; }
+    .sidebar-header { padding:16px 12px; }
+    .nav-item { padding:12px 18px; justify-content:center; }
+    .sidebar-footer { padding:12px; justify-content:center; }
+    .main { margin-left:60px; }
+    .topbar { padding:12px 16px; }
+    .content { padding:16px; }
+    .stats { grid-template-columns:repeat(2,1fr); }
+    .log-card { grid-template-columns:1fr; }
+    table, thead, tbody, th, td, tr { display:block; }
+    thead { display:none; }
+    tbody tr { background:var(--card); border-radius:var(--radius); margin-bottom:8px; padding:12px; box-shadow:var(--shadow); border:1px solid var(--border); }
+    tbody td { padding:3px 0; border:none; display:flex; justify-content:space-between; align-items:center; }
+    tbody td::before { content:attr(data-label); font-size:10px; font-weight:700; text-transform:uppercase; color:var(--text-secondary); margin-right:8px; }
+    .cal-toolbar { flex-direction:column; align-items:stretch; }
+    .cal-toolbar-left, .cal-toolbar-right { justify-content:center; }
+    .cal-week.view-week { grid-template-columns:40px repeat(6,1fr); }
+    .cal-time-label { font-size:8px; padding:0 2px; }
+    .cal-event { font-size:9px; padding:2px 3px; }
+    .cal-header-cell { font-size:9px; padding:6px 2px; }
+    .cal-header-cell .day-num { font-size:14px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h2>&#129729; Respira Vida</h2>
+    <p>Panel de Gestion</p>
+  </div>
+  <nav class="sidebar-nav">
+    <button class="nav-item active" onclick="showSection('agenda')">
+      <span class="icon">&#128197;</span> <span>Agenda</span>
+      <span class="badge" id="navPending">0</span>
+    </button>
+    <button class="nav-item" onclick="showSection('log')">
+      <span class="icon">&#128172;</span> <span>Conversaciones</span>
+    </button>
+    <button class="nav-item" onclick="showSection('calendario')">
+      <span class="icon">&#128467;</span> <span>Calendario</span>
+    </button>
+    <button class="nav-item" onclick="showSection('seguimientos')">
+      <span class="icon">&#128276;</span> <span>Seguimientos</span>
+    </button>
+    <button class="nav-item" onclick="showSection('usuarios')" id="navUsuarios" style="display:none">
+      <span class="icon">&#128101;</span> <span>Usuarios</span>
+    </button>
+  </nav>
+  <div class="sidebar-footer">
+    <div>
+      <div class="user-info" id="userName">-</div>
+      <div class="user-role" id="userRole">-</div>
+    </div>
+    <button class="btn-logout" onclick="logout()">Salir</button>
+  </div>
+</div>
+
+<!-- Main -->
+<div class="main">
+  <div class="topbar">
+    <h1 id="sectionTitle">Agenda de Citas</h1>
+    <div class="topbar-right">
+      <div class="date-nav" id="dateNavBar">
+        <button onclick="cambiarDia(-1)">&#8249;</button>
+        <input type="date" id="datePicker" onchange="cargarCitas(this.value)">
+        <button onclick="cambiarDia(1)">&#8250;</button>
+      </div>
+      <button class="btn-refresh" onclick="refreshCurrent()">&#8635;</button>
+    </div>
+  </div>
+
+  <div class="content">
+    <!-- AGENDA -->
+    <div class="section active" id="sec-agenda">
+      <div class="stats">
+        <div class="stat-card s-total"><div class="label">Total</div><div class="value" id="stTotal">-</div></div>
+        <div class="stat-card s-pending"><div class="label">Pendientes</div><div class="value" id="stPending">-</div></div>
+        <div class="stat-card s-confirmed"><div class="label">Confirmadas</div><div class="value" id="stConfirmed">-</div></div>
+        <div class="stat-card s-attended"><div class="label">Atendidas</div><div class="value" id="stAttended">-</div></div>
+      </div>
+      <div id="citasWrapper"><div class="loading">Cargando...</div></div>
+    </div>
+
+    <!-- CALENDARIO -->
+    <div class="section" id="sec-calendario">
+      <div class="gcal-bar" id="gcalBar">
+        <span class="gcal-icon">&#128197;</span>
+        <div class="gcal-info" id="gcalInfo">
+          <span class="gcal-status">Cargando estado de Google Calendar...</span>
+        </div>
+      </div>
+      <div class="cal-toolbar">
+        <div class="cal-toolbar-left">
+          <button class="cal-btn" onclick="calHoy()">Hoy</button>
+          <button class="cal-btn cal-nav" onclick="calNav(-1)">&#8249;</button>
+          <button class="cal-btn cal-nav" onclick="calNav(1)">&#8250;</button>
+          <span class="cal-range" id="calRange">-</span>
+        </div>
+        <div class="cal-toolbar-right">
+          <button class="cal-btn cal-view-btn active" data-view="week" onclick="calSetView('week')">Semana</button>
+          <button class="cal-btn cal-view-btn" data-view="day" onclick="calSetView('day')">Dia</button>
+          <button class="cal-btn cal-create-btn" onclick="calOpenCreate()">+ Nueva Cita</button>
+        </div>
+      </div>
+      <div id="calGrid"></div>
+    </div>
+
+    <!-- CONVERSACIONES -->
+    <div class="section" id="sec-log">
+      <div id="convListView">
+        <div id="convListWrapper"><div class="loading">Cargando...</div></div>
+      </div>
+      <div id="convThreadView" style="display:none">
+        <div id="threadWrapper"></div>
+      </div>
+    </div>
+
+    <!-- SEGUIMIENTOS -->
+    <div class="section" id="sec-seguimientos">
+      <div id="segWrapper"><div class="loading">Cargando...</div></div>
+    </div>
+
+    <!-- USUARIOS -->
+    <div class="section" id="sec-usuarios">
+      <div class="user-form">
+        <h3>Agregar Usuario</h3>
+        <div class="form-row">
+          <div class="form-field"><label>Usuario</label><input id="nuUsername" placeholder="usuario"></div>
+          <div class="form-field"><label>Nombre</label><input id="nuNombre" placeholder="Nombre completo"></div>
+          <div class="form-field"><label>Contrasena</label><input id="nuPassword" type="password" placeholder="********"></div>
+          <div class="form-field"><label>Rol</label>
+            <select id="nuRole"><option value="staff">Staff</option><option value="admin">Admin</option></select>
+          </div>
+          <button class="btn-add" onclick="crearUsuario()">Agregar</button>
+        </div>
+      </div>
+      <div id="usersWrapper"><div class="loading">Cargando...</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CITA (global) -->
+<div class="cal-modal-overlay" id="calModal" style="display:none" onclick="if(event.target===this)calCloseModal()">
+  <div class="cal-modal">
+    <div class="cal-modal-header">
+      <h3 id="calModalTitle">Nueva Cita</h3>
+      <button class="cal-modal-close" onclick="calCloseModal()">&times;</button>
+    </div>
+    <div class="cal-modal-body">
+      <input type="hidden" id="cmEditId">
+      <div class="form-field"><label>Paciente *</label><input id="cmNombre" placeholder="Nombre del paciente"></div>
+      <div class="form-field"><label>Telefono</label><input id="cmTelefono" placeholder="987654321"></div>
+      <div class="cm-row">
+        <div class="form-field"><label>Fecha *</label><input type="date" id="cmFecha"></div>
+        <div class="form-field"><label>Hora *</label><input type="time" id="cmHora" step="900"></div>
+      </div>
+      <div class="form-field"><label>Motivo</label><input id="cmMotivo" placeholder="Motivo de consulta"></div>
+      <div class="cm-row">
+        <div class="form-field"><label>Estado</label>
+          <select id="cmEstado">
+            <option value="pendiente">Pendiente (Pre-agenda)</option>
+            <option value="confirmada">Confirmada</option>
+            <option value="cancelada">Cancelada</option>
+            <option value="no_contesto">No contesto</option>
+            <option value="atendida">Atendida</option>
+          </select>
+        </div>
+        <div class="form-field"><label>Canal</label>
+          <select id="cmCanal" disabled>
+            <option value="web">Panel</option>
+            <option value="whatsapp">WhatsApp</option>
+            <option value="instagram">Instagram</option>
+            <option value="tiktok">TikTok</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-field"><label>Notas internas</label><textarea id="cmNotas" rows="2" placeholder="Notas para el equipo"></textarea></div>
+    </div>
+    <div class="cal-modal-footer">
+      <button class="cal-btn" onclick="calCloseModal()">Cancelar</button>
+      <button class="cal-btn cal-create-btn" id="cmSubmit" onclick="calSaveCita()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = window.location.origin + '/api';
+
+// Si viene del Google OAuth callback, guardar token
+const _urlParams = new URLSearchParams(window.location.search);
+if (_urlParams.get('auth_token')) {
+  localStorage.setItem('docc_token', _urlParams.get('auth_token'));
+  try { localStorage.setItem('docc_user', decodeURIComponent(_urlParams.get('auth_user') || '{}')); } catch(e){}
+  history.replaceState({}, '', '/dashboard');
+}
+
+const token = localStorage.getItem('docc_token');
+const user = JSON.parse(localStorage.getItem('docc_user') || '{}');
+
+if (!token) { window.location.href = '/'; }
+
+// Auth headers
+const authHeaders = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
+
+// Verify token
+fetch(API + '/auth/me', { headers: authHeaders }).then(r => {
+  if (!r.ok) { localStorage.clear(); window.location.href = '/'; }
+});
+
+// UI init
+document.getElementById('userName').textContent = user.nombre || user.username || '-';
+document.getElementById('userRole').textContent = user.role === 'admin' ? 'Administrador' : 'Staff';
+if (user.role === 'admin') document.getElementById('navUsuarios').style.display = '';
+
+let fechaActual = new Date().toISOString().split('T')[0];
+let currentSection = 'agenda';
+document.getElementById('datePicker').value = fechaActual;
+cargarCitas(fechaActual);
+
+// Auto-refresh
+setInterval(() => { if (currentSection === 'agenda') cargarCitas(fechaActual, true); }, 30000);
+
+function showSection(name) {
+  currentSection = name;
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.getElementById('sec-' + name).classList.add('active');
+
+  const titles = { agenda:'Agenda de Citas', log:'Conversaciones del Agente', seguimientos:'Seguimientos Automaticos', usuarios:'Gestion de Usuarios', calendario:'Calendario' };
+  document.getElementById('sectionTitle').textContent = titles[name] || '';
+  document.getElementById('dateNavBar').style.display = name === 'agenda' ? 'flex' : 'none';
+
+  if (name === 'log') cargarLog();
+  if (name === 'seguimientos') cargarSeguimientos();
+  if (name === 'usuarios') cargarUsuarios();
+  if (name === 'calendario') { gcalLoadStatus(); calRender(); }
+}
+
+function cambiarDia(d) {
+  const dt = new Date(fechaActual); dt.setDate(dt.getDate() + d);
+  fechaActual = dt.toISOString().split('T')[0];
+  document.getElementById('datePicker').value = fechaActual;
+  cargarCitas(fechaActual);
+}
+
+function refreshCurrent() {
+  if (currentSection === 'agenda') cargarCitas(fechaActual);
+  else if (currentSection === 'log') cargarLog();
+  else if (currentSection === 'seguimientos') cargarSeguimientos();
+  else if (currentSection === 'usuarios') cargarUsuarios();
+  else if (currentSection === 'calendario') calRender();
+}
+
+function logout() { localStorage.clear(); window.location.href = '/'; }
+
+let agendaCitas = []; // citas cargadas en la agenda actual
+
+// ── AGENDA ──
+async function cargarCitas(fecha, silent) {
+  fechaActual = fecha;
+  if (!silent) document.getElementById('citasWrapper').innerHTML = '<div class="loading">Cargando...</div>';
+  try {
+    const r = await fetch(API + '/citas/' + fecha);
+    const d = await r.json();
+    agendaCitas = d.citas || [];
+    renderStats(d.stats); renderCitas(d.citas);
+  } catch(e) {
+    if (!silent) document.getElementById('citasWrapper').innerHTML = '<div class="empty"><h3>Error de conexion</h3></div>';
+  }
+}
+
+function renderStats(s) {
+  document.getElementById('stTotal').textContent = s.total || 0;
+  document.getElementById('stPending').textContent = s.pendientes || 0;
+  document.getElementById('stConfirmed').textContent = s.confirmadas || 0;
+  document.getElementById('stAttended').textContent = (s.total || 0) - (s.pendientes || 0) - (s.confirmadas || 0);
+  document.getElementById('navPending').textContent = s.pendientes || 0;
+}
+
+function renderCitas(citas) {
+  const w = document.getElementById('citasWrapper');
+  if (!citas || !citas.length) {
+    w.innerHTML = '<div class="empty"><div class="empty-icon">&#128197;</div><h3>Sin citas</h3><p>Las citas agendadas apareceran aqui</p></div>';
+    return;
+  }
+  // Separar citas por origen
+  const citasIA = citas.filter(c => c.canal && c.canal !== 'presencial');
+  const citasExcel = citas.filter(c => !c.canal || c.canal === 'presencial');
+
+  function buildRows(lista) {
+    return lista.map(c => {
+      const tel = (c.telefono||'').replace(/\D/g,'');
+      const waNum = tel.length > 9 ? tel : '51' + tel;
+      return `<tr>
+        <td data-label="Hora" class="hora-cell">${fmtHora(c.hora)}</td>
+        <td data-label="Paciente" class="nombre-cell">${esc(c.nombre_paciente)}</td>
+        <td data-label="Telefono"><a href="tel:${tel}" style="color:var(--primary);font-weight:500">&#9742; ${c.telefono||'-'}</a></td>
+        <td data-label="Motivo">${esc(c.motivo||'-')}</td>
+        <td data-label="Canal"><span class="badge b-${c.canal||'presencial'}">${c.canal||'presencial'}</span></td>
+        <td data-label="Estado"><span class="badge b-${c.estado||'pendiente'}">${estadoLabel(c.estado)}</span></td>
+        <td data-label="Acciones"><div class="actions">
+          <a href="https://wa.me/${waNum}" target="_blank" class="btn-sm btn-wa">WA</a>
+          <button class="btn-sm btn-attend" onclick="abrirEditarCita(${c.id})" style="background:#e8f5f0;color:var(--primary)">Editar</button>
+          ${c.estado==='pendiente'?`
+            <button class="btn-sm btn-confirm" onclick="setEstado(${c.id},'confirmada')">Confirmar</button>
+            <button class="btn-sm btn-noans" onclick="setEstado(${c.id},'no_contesto')">No contesto</button>
+            <button class="btn-sm btn-cancel" onclick="setEstado(${c.id},'cancelada')">Cancelar</button>
+          `:c.estado==='confirmada'?`
+            <button class="btn-sm btn-attend" onclick="setEstado(${c.id},'atendida')">Atendida</button>
+            <button class="btn-sm btn-cancel" onclick="setEstado(${c.id},'cancelada')">Cancelar</button>
+          `:''}
+        </div></td>
+      </tr>`;
+    }).join('');
+  }
+
+  const tableHead = '<thead><tr><th>Hora</th><th>Paciente</th><th>Telefono</th><th>Motivo</th><th>Canal</th><th>Estado</th><th>Acciones</th></tr></thead>';
+  let html = '';
+
+  if (citasIA.length) {
+    html += `<div class="agenda-section-label" style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <span style="font-size:18px">&#129302;</span>
+      <h3 style="font-size:15px;font-weight:700;color:var(--primary)">Citas agendadas por la IA (${citasIA.length})</h3>
+    </div>
+    <table>${tableHead}<tbody>${buildRows(citasIA)}</tbody></table>`;
+  }
+
+  if (citasExcel.length) {
+    html += `<div class="agenda-section-label" style="display:flex;align-items:center;gap:8px;margin:${citasIA.length?'20':'0'}px 0 8px">
+      <span style="font-size:18px">&#128203;</span>
+      <h3 style="font-size:15px;font-weight:700;color:var(--accent)">Agenda confirmada (${citasExcel.length})</h3>
+    </div>
+    <table>${tableHead}<tbody>${buildRows(citasExcel)}</tbody></table>`;
+  }
+
+  w.innerHTML = html;
+}
+
+async function setEstado(id, estado) {
+  await fetch(API + '/citas/' + id + '/estado', { method:'PATCH', headers:authHeaders, body:JSON.stringify({estado}) });
+  toast('Cita #' + id + ' → ' + estadoLabel(estado));
+  cargarCitas(fechaActual);
+}
+
+function abrirEditarCita(id) {
+  const c = agendaCitas.find(x => x.id === id) || calCitas.find(x => x.id === id);
+  if (!c) { toast('Cita no encontrada'); return; }
+  document.getElementById('cmEditId').value = id;
+  document.getElementById('calModalTitle').textContent = 'Editar Cita #' + id;
+  document.getElementById('cmNombre').value = c.nombre_paciente || '';
+  document.getElementById('cmTelefono').value = c.telefono || '';
+  document.getElementById('cmFecha').value = c.fecha || '';
+  document.getElementById('cmHora').value = (c.hora || '').substring(0, 5);
+  document.getElementById('cmMotivo').value = c.motivo || '';
+  document.getElementById('cmEstado').value = c.estado || 'pendiente';
+  document.getElementById('cmCanal').value = c.canal || 'whatsapp';
+  document.getElementById('cmNotas').value = c.notas_equipo || '';
+  document.getElementById('calModal').style.display = '';
+}
+
+// ── CONVERSACIONES ──
+async function cargarLog() {
+  document.getElementById('convListView').style.display = '';
+  document.getElementById('convThreadView').style.display = 'none';
+  document.getElementById('convListWrapper').innerHTML = '<div class="loading">Cargando...</div>';
+  try {
+    const r = await fetch(API + '/conversaciones?limit=60');
+    const d = await r.json();
+    renderConvList(d.conversaciones);
+  } catch(e) {
+    document.getElementById('convListWrapper').innerHTML = '<div class="empty"><h3>Error</h3></div>';
+  }
+}
+
+function renderConvList(convs) {
+  const w = document.getElementById('convListWrapper');
+  if (!convs || !convs.length) {
+    w.innerHTML = '<div class="empty"><div class="empty-icon">&#128172;</div><h3>Sin conversaciones</h3><p>Las conversaciones del agente apareceran aqui</p></div>';
+    return;
+  }
+  w.innerHTML = convs.map(c => {
+    const dt = new Date(c.ultima_interaccion);
+    const hora = dt.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
+    const fecha = dt.toLocaleDateString('es-PE',{day:'2-digit',month:'short'});
+    const initials = (c.contact_name||'?').split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
+    const phone = c.contact_phone ? ` · ${c.contact_phone}` : '';
+    return `<div class="conv-item" onclick="abrirConversacion(${c.conversation_id})">
+      <div class="conv-avatar">${initials}</div>
+      <div class="conv-info">
+        <div class="conv-name">${esc(c.contact_name||'Contacto #'+c.conversation_id)}${phone?' <span style="font-weight:400;font-size:12px;color:var(--text-secondary)">'+esc(phone)+'</span>':''}</div>
+        <div class="conv-preview">${esc(c.primer_mensaje||'...')}</div>
+      </div>
+      <div class="conv-right">
+        <div class="conv-time">${fecha} ${hora}</div>
+        <span class="conv-count">${c.total_mensajes} msgs</span>
+        ${c.cita_creada?'<br><span class="log-cita" style="margin-top:4px">CITA</span>':''}
+        <a href="https://chats.alef.company/app/accounts/16/conversations/${c.conversation_id}" target="_blank" class="btn-chatwoot" onclick="event.stopPropagation()" title="Ver en Chatwoot">&#128488; Chats</a>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function abrirConversacion(convId) {
+  document.getElementById('convListView').style.display = 'none';
+  document.getElementById('convThreadView').style.display = '';
+  const w = document.getElementById('threadWrapper');
+  w.innerHTML = '<div class="loading">Cargando conversacion...</div>';
+  try {
+    const r = await fetch(API + '/conversaciones/' + convId);
+    const d = await r.json();
+    renderThread(d.mensajes, convId);
+  } catch(e) {
+    w.innerHTML = '<div class="empty"><h3>Error cargando conversacion</h3></div>';
+  }
+}
+
+function cerrarThread() {
+  document.getElementById('convListView').style.display = '';
+  document.getElementById('convThreadView').style.display = 'none';
+}
+
+function renderThread(msgs, convId) {
+  const w = document.getElementById('threadWrapper');
+  if (!msgs || !msgs.length) {
+    w.innerHTML = '<div class="empty"><h3>Sin mensajes</h3></div>';
+    return;
+  }
+  const info = msgs[0];
+  const phone = info.contact_phone || '';
+  const canal = info.canal || 'whatsapp';
+
+  let header = `<div class="thread-header">
+    <button class="thread-back" onclick="cerrarThread()">&#8592;</button>
+    <div class="thread-contact">
+      <h3>${esc(info.contact_name||'Contacto')} <span class="badge b-${canal}" style="font-size:10px;vertical-align:middle">${canal}</span></h3>
+      <p>Conv #${convId}${phone?' · '+esc(phone):''} · ${msgs.length} mensajes</p>
+    </div>
+    <a href="https://chats.alef.company/app/accounts/16/conversations/${convId}" target="_blank" class="btn-chatwoot" style="padding:8px 16px;font-size:13px">&#128488; Chats</a>
+    ${phone?`<a href="https://wa.me/${phone.replace(/\\D/g,'')}" target="_blank" class="btn-sm btn-wa" style="padding:8px 16px;font-size:13px">WA</a>`:''}
+  </div>`;
+
+  let bubbles = msgs.map(m => {
+    const dt = new Date(m.created_at);
+    const hora = dt.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
+    const fecha = dt.toLocaleDateString('es-PE',{day:'2-digit',month:'short'});
+    const ico = m.tipo==='audio'?'&#127908; ':m.tipo==='imagen'?'&#128247; ':m.tipo==='seguimiento'?'&#128276; ':'';
+    let html = '';
+
+    // User bubble
+    if (m.mensaje_usuario && m.tipo !== 'seguimiento') {
+      html += `<div class="thread-bubble user">
+        <div class="bubble-content">${ico}${esc(m.mensaje_usuario)}</div>
+        <div class="bubble-meta"><span>${fecha} ${hora}</span>${m.tipo!=='texto'?'<span class="log-tipo lt-'+m.tipo+'" style="font-size:9px">'+m.tipo+'</span>':''}</div>
+      </div>`;
+    }
+
+    // Agent bubble
+    if (m.respuesta_agente) {
+      html += `<div class="thread-bubble agent">
+        <div class="bubble-content">${m.tipo==='seguimiento'?'&#128276; ':''}${esc(m.respuesta_agente)}</div>
+        <div class="bubble-meta">${m.cita_creada?'<span class="log-cita">CITA CREADA</span>':''}<span>${hora}</span></div>
+      </div>`;
+    }
+    return html;
+  }).join('');
+
+  w.innerHTML = header + '<div class="thread-body">' + bubbles + '</div>';
+}
+
+// ── SEGUIMIENTOS ──
+async function cargarSeguimientos() {
+  document.getElementById('segWrapper').innerHTML = '<div class="loading">Cargando...</div>';
+  try {
+    const r = await fetch(API + '/ejecuciones?limit=100');
+    const d = await r.json();
+    const segs = d.ejecuciones.filter(e => e.tipo === 'seguimiento');
+    renderSeguimientos(segs);
+  } catch(e) {
+    document.getElementById('segWrapper').innerHTML = '<div class="empty"><h3>Error</h3></div>';
+  }
+}
+
+function renderSeguimientos(items) {
+  const w = document.getElementById('segWrapper');
+  if (!items || !items.length) {
+    w.innerHTML = '<div class="empty"><div class="empty-icon">&#128276;</div><h3>Sin seguimientos</h3><p>Los seguimientos automaticos apareceran aqui cuando el agente envie recordatorios</p></div>';
+    return;
+  }
+  w.innerHTML = items.map(e => {
+    const dt = new Date(e.created_at);
+    const hora = dt.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
+    const fecha = dt.toLocaleDateString('es-PE',{day:'2-digit',month:'short',year:'numeric'});
+    return `<div class="log-card">
+      <div class="log-meta">
+        <span class="log-time">${fecha} ${hora}</span>
+        <span class="log-contact">${esc(e.contact_name||'Desconocido')}</span>
+        <span class="log-tipo lt-seguimiento">&#128276; Seguimiento</span>
+      </div>
+      <div class="log-messages">
+        <div><div class="log-label">Mensaje enviado</div><div class="log-msg log-agent">${esc(e.respuesta_agente||'-')}</div></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── USUARIOS ──
+async function cargarUsuarios() {
+  document.getElementById('usersWrapper').innerHTML = '<div class="loading">Cargando...</div>';
+  try {
+    const r = await fetch(API + '/usuarios', { headers:authHeaders });
+    const d = await r.json();
+    renderUsuarios(d.usuarios);
+  } catch(e) {
+    document.getElementById('usersWrapper').innerHTML = '<div class="empty"><h3>Error cargando usuarios</h3></div>';
+  }
+}
+
+function renderUsuarios(users) {
+  const w = document.getElementById('usersWrapper');
+  const rows = users.map(u => `<tr>
+    <td data-label="ID">${u.id}</td>
+    <td data-label="Usuario" style="font-weight:600">${esc(u.username)}</td>
+    <td data-label="Nombre">${esc(u.nombre)}</td>
+    <td data-label="Rol"><span class="badge ${u.role==='admin'?'b-confirmada':'b-pendiente'}">${u.role}</span></td>
+    <td data-label="Estado"><span class="badge ${u.activo?'b-confirmada':'b-cancelada'}">${u.activo?'Activo':'Inactivo'}</span></td>
+    <td data-label="Acciones">${u.id!==1&&u.activo?`<button class="btn-sm btn-cancel" onclick="eliminarUsuario(${u.id})">Desactivar</button>`:''}</td>
+  </tr>`).join('');
+  w.innerHTML = `<table><thead><tr><th>ID</th><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+async function crearUsuario() {
+  const data = {
+    username: document.getElementById('nuUsername').value,
+    password: document.getElementById('nuPassword').value,
+    nombre: document.getElementById('nuNombre').value,
+    role: document.getElementById('nuRole').value,
+  };
+  if (!data.username || !data.password || !data.nombre) { toast('Completa todos los campos'); return; }
+  try {
+    const r = await fetch(API + '/usuarios', { method:'POST', headers:authHeaders, body:JSON.stringify(data) });
+    if (!r.ok) throw new Error((await r.json()).detail);
+    toast('Usuario creado');
+    document.getElementById('nuUsername').value = '';
+    document.getElementById('nuPassword').value = '';
+    document.getElementById('nuNombre').value = '';
+    cargarUsuarios();
+  } catch(e) { toast('Error: ' + e.message); }
+}
+
+async function eliminarUsuario(id) {
+  if (!confirm('Desactivar usuario?')) return;
+  await fetch(API + '/usuarios/' + id, { method:'DELETE', headers:authHeaders });
+  toast('Usuario desactivado');
+  cargarUsuarios();
+}
+
+// ── Helpers ──
+function fmtHora(h) {
+  if (!h) return '-';
+  const p = h.split(':'); let hr = parseInt(p[0]); const m = p[1];
+  const ap = hr >= 12 ? 'PM' : 'AM';
+  if (hr > 12) hr -= 12; if (hr === 0) hr = 12;
+  return hr + ':' + m + ' ' + ap;
+}
+function estadoLabel(e) {
+  return {pendiente:'Pendiente',confirmada:'Confirmada',cancelada:'Cancelada',no_contesto:'No contesto',atendida:'Atendida'}[e]||e||'Pendiente';
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function toast(msg) {
+  const t = document.getElementById('toast'); t.textContent = msg;
+  t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ── GOOGLE CALENDAR ──
+let gcalConnected = false;
+let gcalEvents = [];
+
+async function gcalLoadStatus() {
+  try {
+    const r = await fetch(API + '/gcal/status');
+    const d = await r.json();
+    gcalConnected = d.connected;
+    const bar = document.getElementById('gcalInfo');
+    if (d.connected) {
+      bar.innerHTML = `<span class="gcal-email">Google Calendar conectado</span>${d.email ? ' — ' + esc(d.email) : ''}
+        <br><span class="gcal-status">Los eventos de Google Calendar aparecen en azul. Las citas se sincronizan automaticamente.</span>`;
+      const barEl = document.getElementById('gcalBar');
+      // Remove existing buttons first
+      const oldBtn = barEl.querySelector('.gcal-btn-disconnect');
+      if (!oldBtn) {
+        const btn = document.createElement('button');
+        btn.className = 'gcal-btn-disconnect';
+        btn.textContent = 'Desvincular';
+        btn.onclick = gcalDisconnect;
+        barEl.appendChild(btn);
+      }
+    } else {
+      bar.innerHTML = '<span class="gcal-status">Google Calendar no vinculado. Vincula para sincronizar citas y ver disponibilidad.</span>';
+      const barEl = document.getElementById('gcalBar');
+      const oldBtn = barEl.querySelector('.gcal-btn-connect, .gcal-btn-disconnect');
+      if (oldBtn) oldBtn.remove();
+      const btn = document.createElement('button');
+      btn.className = 'gcal-btn-connect';
+      btn.innerHTML = '&#128279; Vincular Google Calendar';
+      btn.onclick = gcalConnect;
+      barEl.appendChild(btn);
+    }
+  } catch(e) {
+    document.getElementById('gcalInfo').innerHTML = '<span class="gcal-status">Error verificando Google Calendar</span>';
+  }
+}
+
+async function gcalConnect() {
+  try {
+    const r = await fetch(API + '/gcal/auth', { headers: authHeaders });
+    const d = await r.json();
+    if (d.auth_url) {
+      window.location.href = d.auth_url;
+    } else {
+      toast('Error: ' + (d.detail || 'No se pudo generar URL'));
+    }
+  } catch(e) { toast('Error conectando Google Calendar'); }
+}
+
+async function gcalDisconnect() {
+  if (!confirm('Desvincular Google Calendar? Las citas existentes no se eliminaran.')) return;
+  try {
+    await fetch(API + '/gcal/disconnect', { method: 'DELETE', headers: authHeaders });
+    toast('Google Calendar desvinculado');
+    gcalConnected = false;
+    gcalEvents = [];
+    gcalLoadStatus();
+    calRender();
+  } catch(e) { toast('Error desvinculando'); }
+}
+
+async function gcalFetchEvents(days) {
+  if (!gcalConnected) { gcalEvents = []; return; }
+  const desde = calFmt(days[0]);
+  const hasta = calFmt(days[days.length - 1]);
+  try {
+    const r = await fetch(`${API}/gcal/events?desde=${desde}&hasta=${hasta}`);
+    const d = await r.json();
+    gcalEvents = d.events || [];
+  } catch(e) { gcalEvents = []; }
+}
+
+// Check for gcal callback params
+if (window.location.search.includes('gcal=connected')) {
+  setTimeout(() => toast('Google Calendar vinculado correctamente'), 500);
+  history.replaceState({}, '', '/dashboard');
+} else if (window.location.search.includes('gcal=error')) {
+  setTimeout(() => toast('Error al vincular Google Calendar'), 500);
+  history.replaceState({}, '', '/dashboard');
+}
+
+// ── CALENDARIO ──
+const CAL_START_H = 8, CAL_START_M = 30;
+const CAL_END_H_LV = 16, CAL_END_M_LV = 0;   // Lun-Vie hasta 4pm
+const CAL_END_H_SAB = 12, CAL_END_M_SAB = 0;  // Sabado hasta 12pm
+const CAL_SLOT_MIN = 10;
+const CAL_SLOT_PX = 28;
+
+function calEndForDay(d) {
+  // 0=Dom,6=Sab
+  if (d.getDay() === 6) return { h: CAL_END_H_SAB, m: CAL_END_M_SAB };
+  return { h: CAL_END_H_LV, m: CAL_END_M_LV };
+}
+let calView = 'week'; // 'week' | 'day'
+let calBaseDate = new Date(); // anchor for current view
+let calCitas = [];
+
+function calStartOfWeek(d) {
+  const r = new Date(d); r.setHours(0,0,0,0);
+  const day = r.getDay(); const diff = day === 0 ? -6 : 1 - day;
+  r.setDate(r.getDate() + diff);
+  return r;
+}
+
+function calDaysInView() {
+  if (calView === 'day') return [new Date(calBaseDate)];
+  const start = calStartOfWeek(calBaseDate);
+  const days = [];
+  for (let i = 0; i < 6; i++) { // Lun-Sab
+    const d = new Date(start); d.setDate(start.getDate() + i);
+    days.push(d);
+  }
+  return days;
+}
+
+function calTimeSlots() {
+  const slots = [];
+  let h = CAL_START_H, m = CAL_START_M;
+  while (h < CAL_END_H_LV || (h === CAL_END_H_LV && m < CAL_END_M_LV)) {
+    slots.push({ h, m });
+    m += CAL_SLOT_MIN;
+    if (m >= 60) { h++; m = 0; }
+  }
+  return slots;
+}
+
+function calFmt(d) {
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), dd = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${dd}`;
+}
+
+const DIAS_ES = ['Dom','Lun','Mar','Mie','Jue','Vie','Sab'];
+const MESES_ES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+function calUpdateRange() {
+  const el = document.getElementById('calRange');
+  if (calView === 'day') {
+    const d = calBaseDate;
+    el.textContent = `${DIAS_ES[d.getDay()]} ${d.getDate()} ${MESES_ES[d.getMonth()]} ${d.getFullYear()}`;
+  } else {
+    const days = calDaysInView();
+    const s = days[0], e = days[days.length-1];
+    if (s.getMonth() === e.getMonth()) {
+      el.textContent = `${s.getDate()} - ${e.getDate()} ${MESES_ES[s.getMonth()]} ${s.getFullYear()}`;
+    } else {
+      el.textContent = `${s.getDate()} ${MESES_ES[s.getMonth()]} - ${e.getDate()} ${MESES_ES[e.getMonth()]} ${e.getFullYear()}`;
+    }
+  }
+}
+
+function calNav(dir) {
+  const d = calView === 'day' ? 1 : 7;
+  calBaseDate.setDate(calBaseDate.getDate() + dir * d);
+  calRender();
+}
+
+function calHoy() {
+  calBaseDate = new Date();
+  calRender();
+}
+
+function calSetView(v) {
+  calView = v;
+  document.querySelectorAll('.cal-view-btn').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  calRender();
+}
+
+async function calFetchCitas(days) {
+  const fechas = days.map(calFmt);
+  const desde = fechas[0], hasta = fechas[fechas.length - 1];
+  try {
+    const r = await fetch(`${API}/citas/semana/${desde}`);
+    const d = await r.json();
+    calCitas = d.citas || [];
+  } catch(e) { calCitas = []; }
+}
+
+function calMinToY(h, m) {
+  const base = CAL_START_H * 60 + CAL_START_M;
+  const cur = h * 60 + m;
+  return ((cur - base) / CAL_SLOT_MIN) * CAL_SLOT_PX;
+}
+
+async function calRender() {
+  const days = calDaysInView();
+  calUpdateRange();
+  await Promise.all([calFetchCitas(days), gcalFetchEvents(days)]);
+
+  const slots = calTimeSlots();
+  const grid = document.getElementById('calGrid');
+  const viewClass = calView === 'week' ? 'view-week' : 'view-day';
+  const todayStr = calFmt(new Date());
+  const now = new Date();
+
+  // Header row
+  let headerHtml = `<div class="cal-header-cell" style="border-bottom:2px solid var(--border);background:var(--bg)"></div>`;
+  days.forEach(d => {
+    const isToday = calFmt(d) === todayStr;
+    headerHtml += `<div class="cal-header-cell${isToday?' today':''}">
+      ${DIAS_ES[d.getDay()]}<span class="day-num">${d.getDate()}</span>
+    </div>`;
+  });
+
+  // Time gutter + day columns — show label every 30 min only
+  let gutterHtml = '';
+  slots.forEach(s => {
+    const show = s.m % 30 === 0;
+    const label = show ? `${s.h > 12 ? s.h-12 : s.h}:${String(s.m).padStart(2,'0')} ${s.h >= 12 ? 'PM' : 'AM'}` : '';
+    gutterHtml += `<div class="cal-time-label">${label}</div>`;
+  });
+
+  let colsHtml = '';
+  days.forEach(d => {
+    const dateStr = calFmt(d);
+    const dayCitas = calCitas.filter(c => c.fecha === dateStr);
+    const dayEnd = calEndForDay(d);
+    const isDomingo = d.getDay() === 0;
+    let slotsHtml = '';
+    slots.forEach((s, i) => {
+      const outOfHours = isDomingo || (s.h > dayEnd.h || (s.h === dayEnd.h && s.m >= dayEnd.m));
+      slotsHtml += `<div class="cal-slot${outOfHours?' cal-closed':''}" data-date="${dateStr}" data-time="${String(s.h).padStart(2,'0')}:${String(s.m).padStart(2,'0')}" ${outOfHours?'':'onclick="calSlotClick(this)"'}></div>`;
+    });
+
+    // Events
+    let eventsHtml = '';
+    dayCitas.forEach(c => {
+      if (c.estado === 'cancelada') return;
+      const hp = (c.hora||'08:30').split(':');
+      const h = parseInt(hp[0]), m = parseInt(hp[1] || 0);
+      const top = calMinToY(h, m);
+      const height = (10 / CAL_SLOT_MIN) * CAL_SLOT_PX; // 10 min cita
+      const timeStr = fmtHora(c.hora);
+      eventsHtml += `<div class="cal-event est-${c.estado||'pendiente'}" style="top:${top}px;height:${Math.max(height, 28)}px" onclick="event.stopPropagation();calEditCita(${c.id})" title="${esc(c.nombre_paciente)} - ${timeStr}">
+        <div class="ev-time">${timeStr}</div>
+        <div class="ev-name">${esc(c.nombre_paciente)}</div>
+        ${height > 36 ? `<div class="ev-motivo">${esc(c.motivo||'')}</div>` : ''}
+      </div>`;
+    });
+
+    // Google Calendar events
+    gcalEvents.forEach(ev => {
+      if (ev.all_day) return;
+      const evStart = new Date(ev.start);
+      const evEnd = new Date(ev.end);
+      const evDateStr = calFmt(evStart);
+      if (evDateStr !== dateStr) return;
+      const top = calMinToY(evStart.getHours(), evStart.getMinutes());
+      const durMin = (evEnd - evStart) / 60000;
+      const height = (durMin / CAL_SLOT_MIN) * CAL_SLOT_PX;
+      const startStr = evStart.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit',hour12:true});
+      eventsHtml += `<div class="cal-event est-gcal" style="top:${top}px;height:${Math.max(height, 24)}px" title="${esc(ev.summary)} (Google Calendar)">
+        <div class="ev-time">${startStr}</div>
+        <div class="ev-name">${esc(ev.summary || 'Ocupado')}</div>
+      </div>`;
+    });
+
+    // Now line
+    let nowLineHtml = '';
+    if (dateStr === todayStr) {
+      const nowTop = calMinToY(now.getHours(), now.getMinutes());
+      const maxTop = slots.length * CAL_SLOT_PX;
+      if (nowTop >= 0 && nowTop <= maxTop) {
+        nowLineHtml = `<div class="cal-now-line" style="top:${nowTop}px"></div>`;
+      }
+    }
+
+    colsHtml += `<div class="cal-day-col">${slotsHtml}${eventsHtml}${nowLineHtml}</div>`;
+  });
+
+  grid.innerHTML = `<div class="cal-week ${viewClass}">
+    ${headerHtml}
+    <div class="cal-time-gutter">${gutterHtml}</div>
+    ${colsHtml}
+  </div>`;
+}
+
+function calSlotClick(el) {
+  const date = el.dataset.date;
+  const time = el.dataset.time;
+  document.getElementById('cmEditId').value = '';
+  document.getElementById('calModalTitle').textContent = 'Nueva Cita';
+  document.getElementById('cmNombre').value = '';
+  document.getElementById('cmTelefono').value = '';
+  document.getElementById('cmFecha').value = date;
+  document.getElementById('cmHora').value = time;
+  document.getElementById('cmMotivo').value = '';
+  document.getElementById('cmEstado').value = 'pendiente';
+  document.getElementById('cmCanal').value = 'web';
+  document.getElementById('cmNotas').value = '';
+  document.getElementById('calModal').style.display = '';
+}
+
+function calOpenCreate() {
+  document.getElementById('cmEditId').value = '';
+  document.getElementById('calModalTitle').textContent = 'Nueva Cita';
+  document.getElementById('cmNombre').value = '';
+  document.getElementById('cmTelefono').value = '';
+  document.getElementById('cmFecha').value = calFmt(calBaseDate);
+  document.getElementById('cmHora').value = '09:00';
+  document.getElementById('cmMotivo').value = '';
+  document.getElementById('cmEstado').value = 'pendiente';
+  document.getElementById('cmCanal').value = 'web';
+  document.getElementById('cmNotas').value = '';
+  document.getElementById('calModal').style.display = '';
+}
+
+function calEditCita(id) { abrirEditarCita(id); }
+
+function calCloseModal() {
+  document.getElementById('calModal').style.display = 'none';
+}
+
+async function calSaveCita() {
+  const editId = document.getElementById('cmEditId').value;
+  const nombre = document.getElementById('cmNombre').value.trim();
+  const fecha = document.getElementById('cmFecha').value;
+  const hora = document.getElementById('cmHora').value;
+  if (!nombre || !fecha || !hora) { toast('Completa paciente, fecha y hora'); return; }
+
+  const data = {
+    nombre: nombre,
+    nombre_paciente: nombre,
+    telefono: document.getElementById('cmTelefono').value.trim(),
+    fecha: fecha,
+    hora: hora,
+    motivo: document.getElementById('cmMotivo').value.trim(),
+    estado: document.getElementById('cmEstado').value,
+    notas: document.getElementById('cmNotas').value.trim(),
+    notas_equipo: document.getElementById('cmNotas').value.trim(),
+  };
+
+  try {
+    let url, method;
+    if (editId) {
+      url = `${API}/citas/${editId}`;
+      method = 'PUT';
+    } else {
+      url = `${API}/citas`;
+      method = 'POST';
+    }
+    const r = await fetch(url, { method, headers: authHeaders, body: JSON.stringify(data) });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Error'); }
+    toast(editId ? 'Cita actualizada' : 'Cita creada');
+    calCloseModal();
+    calRender();
+    // Also refresh agenda if we go back
+    cargarCitas(fechaActual, true);
+  } catch(e) { toast('Error: ' + e.message); }
+}
+</script>
+</body>
+</html>

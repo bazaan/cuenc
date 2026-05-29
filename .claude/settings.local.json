@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git clone *)",
+      "Bash(git pull *)",
+      "Bash(curl -s 'https://chats.alef.company/api/v1/accounts/16/conversations?status=all&page=1&sort_by=-created_at' -H 'api_access_token: xBsW4FE3FCZdZbgXgdjrHfUA' -H 'Content-Type: application/json')",
+      "Bash(curl -s 'https://chats.alef.company/api/v1/accounts/16/conversations?status=all&page=1&per_page=100&sort_by=-created_at' -H 'api_access_token: xBsW4FE3FCZdZbgXgdjrHfUA')",
+      "Bash(curl -s 'https://chats.alef.company/api/v1/accounts/16/conversations?status=all&page=1&per_page=50&sort_by=-created_at' -H 'api_access_token: xBsW4FE3FCZdZbgXgdjrHfUA')",
+      "Read(//tmp/**)",
+      "Bash(redis-cli --version)",
+      "Bash(pip install *)",
+      "Bash(python *)",
+      "Bash(ssh-keygen -t ed25519 -C \"Claude\" -f ~/.ssh/id_ed25519 -N \"\")",
+      "Read(//c/Users/Zumaeta/.ssh/**)",
+      "Bash(ssh -i ~/.ssh/id_ed25519 root@173.249.59.135 \"echo 'CONECTADO AL VPS'\")",
+      "Bash(ssh *)",
+      "WebSearch",
+      "Bash(scp \"C:/Users/Zumaeta/Desktop/proyecto c/cuenc/ai_engine.py\" root@173.249.59.135:/root/doc-c-agent/)",
+      "Bash(scp \"C:/Users/Zumaeta/Desktop/proyecto c/cuenc/config.py\" root@173.249.59.135:/root/doc-c-agent/)",
+      "Bash(curl -s https://dashboard.respiravida.online/health)",
+      "Bash(scp root@173.249.59.135:/root/doc-c-agent/appointments.py \"C:/Users/Zumaeta/Desktop/proyecto c/cuenc/\")",
+      "Bash(scp root@173.249.59.135:/root/doc-c-agent/config.py \"C:/Users/Zumaeta/Desktop/proyecto c/cuenc/config.py.vps\")",
+      "Bash(curl *)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'fix: cambiar max_tokens a max_completion_tokens para OpenAI gpt-5-mini *)",
+      "Bash(git push *)",
+      "Bash(git commit -m 'improve: mejor logging de respuestas vacías de OpenAI *)",
+      "Bash(git commit -m 'fix: aumentar max_completion_tokens de 250 a 500 *)",
+      "Read(//c/c/Users/Zumaeta/Desktop/proyecto c/cuenc/**)"
+    ]
+  }
+}
