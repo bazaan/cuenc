@@ -363,7 +363,15 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
             )
             await send_message(conversation_id, saludo)
             state = await add_message(state, "assistant", saludo)
-            log.info(f"[Conv {conversation_id}] Saludo inicial enviado (conversación nueva)")
+            # Guardar el mensaje del usuario en historial antes de retornar
+            if contact_name and not state.contact_name:
+                state.contact_name = contact_name
+            if contact_phone and not state.contact_phone:
+                state.contact_phone = contact_phone
+            state = await add_message(state, "user", combined_message)
+            await save_state(state)
+            log.info(f"[Conv {conversation_id}] Saludo inicial enviado (conversación nueva) — esperando respuesta del paciente")
+            return
         else:
             log.info(f"[Conv {conversation_id}] Estado Redis expirado, reconectando (conv existente, sin saludo)")
 
@@ -524,42 +532,67 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
                 contact_id=contact_id,
             )
             cita_id = await appointments.crear_cita(cita)
-            log.info(f"[Conv {conversation_id}] CITA CREADA #{cita_id}: {nombre} {fecha} {hora}")
 
-            # Registrar alerta de cita agendada
-            await appointments.registrar_alerta(
-                tipo="cita_agendada",
-                conversation_id=conversation_id,
-                contact_name=nombre,
-                contact_phone=telefono,
-                detalle=f"Cita #{cita_id}: {fecha} {hora} — {cita_data.get('motivo', 'Consulta')}",
-            )
-
-            # Crear evento en Google Calendar si esta conectado (pre-agenda = pendiente)
-            gcal_token = await appointments.get_gcal_token()
-            if gcal_token:
-                gcal_eid = await gcal.create_event(
-                    gcal_token, nombre, telefono, fecha, hora,
-                    motivo=cita_data.get("motivo", "Consulta"),
-                    estado="pendiente",
+            if cita_id is None:
+                # Slot ocupado — no enviar confirmación, escalar a supervisor
+                log.warning(f"[Conv {conversation_id}] Slot {fecha} {hora} ocupado — escalando a supervisor")
+                clean_text = "Disculpe, ese horario acaba de ser tomado. Una asesora le ayudará a encontrar otro horario disponible. Un momento por favor 😊"
+                state.handoff = True
+                state.handoff_at = datetime.now().isoformat()
+                await save_state(state)
+                await add_label(conversation_id, "supervisor")
+                await set_custom_attributes(conversation_id, {"ai_status": "supervisor", "pasar_supervisor": "si"})
+                await appointments.registrar_alerta(
+                    tipo="supervisor", conversation_id=conversation_id,
+                    contact_name=nombre, contact_phone=telefono,
+                    detalle=f"Slot ocupado {fecha} {hora} — paciente necesita reagendar",
                 )
-                if gcal_eid:
-                    await appointments.update_cita_gcal_id(cita_id, gcal_eid)
+                cita_data = None  # Limpiar para que no se marque como cita_creada
+            else:
+                log.info(f"[Conv {conversation_id}] CITA CREADA #{cita_id}: {nombre} {fecha} {hora}")
 
-            await add_label(conversation_id, "cita_agendada")
-            await set_custom_attributes(conversation_id, {"ai_status": "cita_agendada", "pasar_supervisor": "si"})
-            # Handoff automático: IA deja de responder, equipo toma control
-            state.cita_creada = True
-            state.handoff = True
-            state.handoff_at = datetime.now().isoformat()
-            log.info(f"[Conv {conversation_id}] HANDOFF automático — cita creada, supervisor toma control")
-            # Cerrar seguimiento para que no reciba follow-ups
-            await appointments.cerrar_seguimiento(conversation_id)
-            # Asignar a team en Chatwoot si está configurado
-            if config.CHATWOOT_TEAM_ID:
-                await assign_team(conversation_id, config.CHATWOOT_TEAM_ID)
+                # Registrar alerta de cita agendada
+                await appointments.registrar_alerta(
+                    tipo="cita_agendada",
+                    conversation_id=conversation_id,
+                    contact_name=nombre,
+                    contact_phone=telefono,
+                    detalle=f"Cita #{cita_id}: {fecha} {hora} — {cita_data.get('motivo', 'Consulta')}",
+                )
+
+                # Crear evento en Google Calendar si esta conectado (pre-agenda = pendiente)
+                gcal_token = await appointments.get_gcal_token()
+                if gcal_token:
+                    gcal_eid = await gcal.create_event(
+                        gcal_token, nombre, telefono, fecha, hora,
+                        motivo=cita_data.get("motivo", "Consulta"),
+                        estado="pendiente",
+                    )
+                    if gcal_eid:
+                        await appointments.update_cita_gcal_id(cita_id, gcal_eid)
+
+                await add_label(conversation_id, "cita_agendada")
+                await set_custom_attributes(conversation_id, {"ai_status": "cita_agendada", "pasar_supervisor": "si"})
+                # Handoff automático: IA deja de responder, equipo toma control
+                state.cita_creada = True
+                state.handoff = True
+                state.handoff_at = datetime.now().isoformat()
+                log.info(f"[Conv {conversation_id}] HANDOFF automático — cita creada, supervisor toma control")
+                # Cerrar seguimiento para que no reciba follow-ups
+                await appointments.cerrar_seguimiento(conversation_id)
+                # Asignar a team en Chatwoot si está configurado
+                if config.CHATWOOT_TEAM_ID:
+                    await assign_team(conversation_id, config.CHATWOOT_TEAM_ID)
         except Exception as e:
             log.error(f"Error creando cita: {e}")
+            # Si falla la creación, escalar a supervisor en vez de enviar confirmación falsa
+            clean_text = "Hubo un inconveniente al registrar su cita. Una asesora le ayudará en un momento 😊"
+            state.handoff = True
+            state.handoff_at = datetime.now().isoformat()
+            await save_state(state)
+            await add_label(conversation_id, "supervisor")
+            await set_custom_attributes(conversation_id, {"ai_status": "supervisor", "pasar_supervisor": "si"})
+            cita_data = None
 
     # Detectar escalamiento a supervisor (IA decidió pasar a humano)
     supervisor_motivo = extract_supervisor_tag(ai_response)
@@ -777,7 +810,35 @@ async def webhook_chatwoot(request: Request):
     message_type = payload.get("message_type")
 
     if message_type != "incoming":
+        # Auto-handoff: si una PERSONA del equipo responde manualmente (outgoing) y la IA no está en handoff
+        # Excluir mensajes del bot (sender.id == BOT_CHATWOOT_USER_ID) porque usa el mismo token
+        if message_type == "outgoing":
+            sender_info = payload.get("sender", {})
+            sender_type = sender_info.get("type", "")
+            sender_id = sender_info.get("id")
+            conv = payload.get("conversation", {})
+            conv_id = conv.get("id")
+            if conv_id and sender_type == "user" and sender_id != config.BOT_CHATWOOT_USER_ID:
+                st = await get_state(conv_id)
+                if st and not st.handoff:
+                    st.handoff = True
+                    st.handoff_at = datetime.now().isoformat()
+                    await save_state(st)
+                    await set_custom_attributes(conv_id, {"ai_status": "supervisor", "pasar_supervisor": "si"})
+                    await add_label(conv_id, "supervisor")
+                    log.info(f"[Conv {conv_id}] AUTO-HANDOFF: agente humano (id={sender_id}) respondió — IA pausada")
         return {"ok": True, "skipped": "not_incoming"}
+
+    # Filtrar mensajes del equipo (ej: doctor escribiendo desde su numero personal)
+    sender = payload.get("sender", {})
+    sender_phone = sender.get("phone_number", "")
+    if sender_phone:
+        # Limpiar a solo últimos 9 dígitos para comparar
+        sender_digits = ''.join(c for c in sender_phone if c.isdigit())[-9:]
+        team_digits = {''.join(c for c in p if c.isdigit())[-9:] for p in config.TEAM_PHONES}
+        if sender_digits in team_digits:
+            log.info(f"[Webhook] Mensaje de teléfono del equipo ({sender_phone}) — IA ignora")
+            return {"ok": True, "skipped": "team_phone"}
 
     # Detectar attachments (audio / imagen)
     attachments = payload.get("attachments", [])
@@ -1049,6 +1110,25 @@ async def cambiar_estado(cita_id: int, request: Request):
                     await appointments.update_cita_gcal_id(cita_id, eid)
 
     return {"ok": True, "cita_id": cita_id, "nuevo_estado": estado}
+
+
+@app.delete("/api/citas/{cita_id}")
+async def eliminar_cita(cita_id: int, request: Request):
+    """Eliminar una cita desde el dashboard (soft delete → cancelada)."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    payload = auth.decode_token(token)
+    if not payload:
+        raise HTTPException(401, "Token invalido")
+    cita = await appointments.get_cita(cita_id)
+    if not cita:
+        raise HTTPException(404, "Cita no encontrada")
+    await appointments.actualizar_estado(cita_id, EstadoCita.CANCELADA)
+    # Eliminar de Google Calendar si tiene evento
+    gcal_token = await appointments.get_gcal_token()
+    if gcal_token and cita.get("gcal_event_id"):
+        await gcal.delete_event(gcal_token, cita["gcal_event_id"])
+    log.info(f"Cita #{cita_id} eliminada (cancelada) por {payload.get('username', '?')}")
+    return {"ok": True, "cita_id": cita_id}
 
 
 @app.get("/api/stats/hoy")

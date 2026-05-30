@@ -52,3 +52,10 @@ CITAS_DIA_LLENO = 12  # Si un dia tiene >= 12 citas, no ofrecerlo proactivamente
 
 # --- Handoff ---
 CHATWOOT_TEAM_ID = int(os.getenv("CHATWOOT_TEAM_ID", "0"))  # Team "Asesoras" en Chatwoot para handoff
+
+# Telefonos del equipo — la IA ignora mensajes de estos numeros
+TEAM_PHONES = set(filter(None, os.getenv("TEAM_PHONES", "969460204").split(",")))
+
+# ID del usuario Chatwoot cuyo token usa el bot — excluir del auto-handoff
+# (mensajes outgoing del bot aparecen como sender_type=user con este ID)
+BOT_CHATWOOT_USER_ID = int(os.getenv("BOT_CHATWOOT_USER_ID", "1"))

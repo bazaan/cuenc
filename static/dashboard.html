@@ -701,9 +701,12 @@
       </div>
       <div class="form-field"><label>Notas internas</label><textarea id="cmNotas" rows="2" placeholder="Notas para el equipo"></textarea></div>
     </div>
-    <div class="cal-modal-footer">
-      <button class="cal-btn" onclick="calCloseModal()">Cancelar</button>
-      <button class="cal-btn cal-create-btn" id="cmSubmit" onclick="calSaveCita()">Guardar</button>
+    <div class="cal-modal-footer" style="display:flex;justify-content:space-between;align-items:center">
+      <button class="cal-btn" id="cmDeleteBtn" style="display:none;background:#fef2f2;color:#dc2626;border-color:#fca5a5" onclick="calDeleteCita()">Eliminar cita</button>
+      <div style="display:flex;gap:8px;margin-left:auto">
+        <button class="cal-btn" onclick="calCloseModal()">Cancelar</button>
+        <button class="cal-btn cal-create-btn" id="cmSubmit" onclick="calSaveCita()">Guardar</button>
+      </div>
     </div>
   </div>
 </div>
@@ -943,6 +946,7 @@ function abrirEditarCita(id) {
   document.getElementById('cmEstado').value = c.estado || 'pendiente';
   document.getElementById('cmCanal').value = c.canal || 'whatsapp';
   document.getElementById('cmNotas').value = c.notas_equipo || '';
+  document.getElementById('cmDeleteBtn').style.display = '';
   document.getElementById('calModal').style.display = '';
 }
 
@@ -1511,6 +1515,7 @@ function calSlotClick(el) {
   document.getElementById('cmEstado').value = 'pendiente';
   document.getElementById('cmCanal').value = 'web';
   document.getElementById('cmNotas').value = '';
+  document.getElementById('cmDeleteBtn').style.display = 'none';
   document.getElementById('calModal').style.display = '';
 }
 
@@ -1526,6 +1531,7 @@ function calOpenCreate() {
   document.getElementById('cmEstado').value = 'pendiente';
   document.getElementById('cmCanal').value = 'web';
   document.getElementById('cmNotas').value = '';
+  document.getElementById('cmDeleteBtn').style.display = 'none';
   document.getElementById('calModal').style.display = '';
 }
 
@@ -1685,6 +1691,21 @@ setTimeout(() => { _lastAlertCount = -1; }, 3000);
 setInterval(pollAlertas, 15000);
 
 function calEditCita(id) { abrirEditarCita(id); }
+
+async function calDeleteCita() {
+  const id = document.getElementById('cmEditId').value;
+  if (!id) return;
+  if (!confirm('¿Eliminar esta cita? Se cancelará y no se podrá deshacer.')) return;
+  try {
+    const r = await fetch(API + '/citas/' + id, { method:'DELETE', headers:authHeaders });
+    if (!r.ok) throw new Error('Error al eliminar');
+    toast('Cita eliminada');
+    calCloseModal();
+    renderCalendar();
+  } catch(e) {
+    toast('Error: ' + e.message);
+  }
+}
 
 function calCloseModal() {
   document.getElementById('calModal').style.display = 'none';

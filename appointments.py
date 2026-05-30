@@ -134,8 +134,8 @@ async def init_db():
         log.info("DB inicializada: tablas citas y ejecuciones listas")
 
 
-async def crear_cita(cita: Cita) -> int:
-    """Crea una cita y retorna el ID. Previene duplicados por conversation_id."""
+async def crear_cita(cita: Cita) -> int | None:
+    """Crea una cita y retorna el ID. Previene duplicados por conversation_id Y por fecha+hora."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         # Verificar si ya existe una cita activa para esta conversación
@@ -148,6 +148,20 @@ async def crear_cita(cita: Cita) -> int:
             if existing:
                 log.warning(f"Cita duplicada bloqueada: conv {cita.conversation_id} ya tiene cita #{existing}")
                 return existing
+
+        # Prevenir double-booking con lock advisory para evitar race conditions
+        # Lock basado en fecha+hora (hash único por slot)
+        lock_key = int(cita.fecha.toordinal()) * 10000 + cita.hora.hour * 100 + cita.hora.minute
+        await conn.execute("SELECT pg_advisory_xact_lock($1)", lock_key)
+
+        slot_taken = await conn.fetchval("""
+            SELECT id FROM citas
+            WHERE fecha = $1 AND hora = $2 AND estado NOT IN ('cancelada')
+            LIMIT 1
+        """, cita.fecha, cita.hora)
+        if slot_taken:
+            log.warning(f"SLOT OCUPADO: {cita.fecha} {cita.hora} ya tiene cita #{slot_taken} — no se crea duplicado")
+            return None
 
         row = await conn.fetchrow("""
             INSERT INTO citas (nombre_paciente, telefono, fecha, hora, motivo, canal, estado, conversation_id, contact_id, tipo_paciente)
