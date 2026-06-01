@@ -742,7 +742,12 @@ document.getElementById('userName').textContent = user.nombre || user.username |
 document.getElementById('userRole').textContent = user.role === 'admin' ? 'Administrador' : 'Staff';
 if (user.role === 'admin') document.getElementById('navUsuarios').style.display = '';
 
-let fechaActual = new Date().toISOString().split('T')[0];
+// Obtener fecha ACTUAL en timezone de Lima (no UTC)
+const limaDate = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' });
+const [datePart] = limaDate.split(' ');
+const [day, month, year] = datePart.split('/');
+let fechaActual = `${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}`;
+
 let currentSection = 'agenda';
 document.getElementById('datePicker').value = fechaActual;
 cargarCitas(fechaActual);
@@ -824,8 +829,13 @@ function showSection(name) {
 }
 
 function cambiarDia(d) {
-  const dt = new Date(fechaActual); dt.setDate(dt.getDate() + d);
-  fechaActual = dt.toISOString().split('T')[0];
+  // Parsear fechaActual (YYYY-MM-DD) a Date
+  const [year, month, day] = fechaActual.split('-').map(Number);
+  const dt = new Date(year, month - 1, day);
+  dt.setDate(dt.getDate() + d);
+
+  // Convertir de vuelta a YYYY-MM-DD
+  fechaActual = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
   document.getElementById('datePicker').value = fechaActual;
   cargarCitas(fechaActual);
 }
