@@ -6,14 +6,15 @@ import os
 CHATWOOT_BASE_URL = os.getenv("CHATWOOT_BASE_URL", "https://clinicas.alefcompany.online")
 CHATWOOT_API_TOKEN = os.getenv("CHATWOOT_API_TOKEN", "")
 CHATWOOT_ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID", "1")
-CHATWOOT_BOT_TOKEN = os.getenv("CHATWOOT_BOT_TOKEN", "")  # Agent Bot token (si se usa)
+CHATWOOT_BOT_TOKEN = os.getenv("CHATWOOT_BOT_TOKEN", "VjkEDYABP3ejGFum9DHfmM8w")  # Bot token de Chatwoot
 
 # --- OpenAI (Whisper transcripcion audio) ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
-# --- AI (OpenAI) ---
-AI_MODEL = os.getenv("AI_MODEL", "gpt-5.4-mini")
-AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "5000"))  # Respuestas + JSON cita
+# --- OpenAI API ---
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+AI_MODEL = os.getenv("AI_MODEL", "gpt-5-mini")
+AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "5000"))  # Respuestas + JSON cita (amplio para evitar errores por longitud de prompt)
 
 # --- Redis (estado de conversacion) ---
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -41,21 +42,10 @@ DOCTOR_ESPECIALIDAD = "Neumólogo"
 CLINICA_TELEFONO = os.getenv("CLINICA_TELEFONO", "")  # Para derivar llamadas
 CLINICA_DIRECCION = "Av. Arequipa 2050, Lince, Lima (altura CC Risso)"
 HORARIO_INICIO = "08:30"
-HORARIO_FIN = "16:00"  # legacy, no se usa directamente
-HORARIO_FIN_SABADO = "12:00"  # legacy, no se usa directamente
-# Turnos reales de agendamiento
-TURNO_MANANA = ("08:30", "11:00")  # Lun-Sab
-TURNO_TARDE = ("14:00", "15:40")   # Solo Lun-Vie
+HORARIO_FIN = "16:00"
+HORARIO_FIN_SABADO = "12:00"
 INTERVALO_CITAS_MIN = 10
 SLOTS_VISIBLES = 3  # Mostrar solo 3 horarios (pedido del doctor)
-CITAS_DIA_LLENO = 12  # Si un dia tiene >= 12 citas, no ofrecerlo proactivamente
 
 # --- Handoff ---
 CHATWOOT_TEAM_ID = int(os.getenv("CHATWOOT_TEAM_ID", "0"))  # Team "Asesoras" en Chatwoot para handoff
-
-# Telefonos del equipo — la IA ignora mensajes de estos numeros
-TEAM_PHONES = set(filter(None, os.getenv("TEAM_PHONES", "969460204").split(",")))
-
-# ID del usuario Chatwoot cuyo token usa el bot — excluir del auto-handoff
-# (mensajes outgoing del bot aparecen como sender_type=user con este ID)
-BOT_CHATWOOT_USER_ID = int(os.getenv("BOT_CHATWOOT_USER_ID", "1"))
