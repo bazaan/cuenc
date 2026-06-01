@@ -19,9 +19,10 @@ from fastapi.staticfiles import StaticFiles
 
 import config
 from models import ConversationState, Cita, EstadoCita, Canal
+import conversation
 from conversation import get_state, save_state, delete_state, add_message
 from ai_engine import generate_response, extract_appointment_json, extract_supervisor_tag, clean_response, get_followup_message
-from chatwoot_client import send_message, add_label, remove_label, get_conversation_labels, assign_team, set_custom_attributes, get_custom_attributes, ensure_account_labels
+from chatwoot_client import send_message, add_label, remove_label, get_conversation_labels, assign_team, set_custom_attributes, get_custom_attributes, ensure_account_labels, list_open_conversations, get_conversation_messages
 from transcriber import transcribe_audio, describe_image
 import appointments
 import auth
@@ -101,14 +102,172 @@ async def _followup_loop():
             log.error(f"Error en followup loop: {e}")
 
 
+_watchdog_task: asyncio.Task | None = None
+WATCHDOG_INTERVAL = 180  # cada 3 minutos
+WATCHDOG_MIN_AGE = 180   # solo mensajes sin respuesta hace >= 3 min
+WATCHDOG_MAX_AGE = 3600  # ignorar mensajes de más de 1 hora (probablemente legítimos)
+
+
+async def _watchdog_loop():
+    """Background: detecta conversaciones abiertas con mensajes incoming sin respuesta."""
+    while True:
+        try:
+            await asyncio.sleep(WATCHDOG_INTERVAL)
+
+            if not AI_ENABLED:
+                continue
+
+            from zoneinfo import ZoneInfo
+            now_lima = datetime.now(ZoneInfo("America/Lima"))
+            if now_lima.hour >= 21 or now_lima.hour < 8:
+                continue
+
+            # Obtener conversaciones abiertas de Chatwoot
+            conversations = await list_open_conversations(page=1)
+            # Página 2 si hay muchas
+            if len(conversations) >= 25:
+                conversations += await list_open_conversations(page=2)
+
+            recovered = 0
+            for conv in conversations:
+                try:
+                    conv_id = conv.get("id")
+                    if not conv_id:
+                        continue
+
+                    # FILTRO MEMORIA: si ya está en debounce o procesándose, skip
+                    if conv_id in _pending_tasks or conv_id in _pending_messages or conv_id in _processing:
+                        continue
+
+                    # Obtener últimos mensajes de la conversación
+                    msgs = await get_conversation_messages(conv_id, limit=5)
+                    if not msgs:
+                        continue
+
+                    # Encontrar el último mensaje no-activity
+                    last_real = None
+                    for m in msgs:
+                        if m.get("message_type") in (0, 1):  # 0=incoming, 1=outgoing
+                            last_real = m
+                            break  # msgs vienen desc, el primero es el más reciente
+
+                    if not last_real or last_real.get("message_type") != 0:
+                        continue  # último mensaje es outgoing o no hay mensajes → ok
+
+                    # Verificar antigüedad (>= 3 min sin respuesta)
+                    msg_time = last_real.get("created_at")
+                    if not msg_time:
+                        continue
+                    try:
+                        if isinstance(msg_time, (int, float)):
+                            msg_dt = datetime.fromtimestamp(msg_time, tz=ZoneInfo("UTC"))
+                        else:
+                            msg_dt = datetime.fromisoformat(str(msg_time).replace("Z", "+00:00"))
+                        age_seconds = (datetime.now(ZoneInfo("UTC")) - msg_dt).total_seconds()
+                    except (ValueError, TypeError):
+                        continue
+
+                    if age_seconds < WATCHDOG_MIN_AGE or age_seconds > WATCHDOG_MAX_AGE:
+                        continue
+
+                    # FILTRO HANDOFF: verificar Redis + Chatwoot
+                    state = await get_state(conv_id)
+                    if state and (state.handoff or state.cita_creada):
+                        continue
+                    cw_attrs = conv.get("custom_attributes", {})
+                    if cw_attrs.get("pasar_supervisor") == "si" or cw_attrs.get("ai_status") in ("supervisor", "cita_agendada"):
+                        continue
+                    labels = [l.get("title", "") if isinstance(l, dict) else str(l) for l in conv.get("labels", [])]
+                    if "supervisor" in labels or "pasar_supervisor" in labels:
+                        continue
+
+                    # FILTRO TEAM PHONES
+                    sender = last_real.get("sender", {})
+                    sender_phone = sender.get("phone_number", "")
+                    if sender_phone:
+                        sender_digits = ''.join(c for c in sender_phone if c.isdigit())[-9:]
+                        team_digits = {''.join(c for c in p if c.isdigit())[-9:] for p in config.TEAM_PHONES}
+                        if sender_digits in team_digits:
+                            continue
+
+                    # FILTRO BD: verificar si ya respondimos recientemente
+                    ultima = await appointments.get_ultima_ejecucion(conv_id)
+                    if ultima and ultima.get("created_at"):
+                        ult_dt = ultima["created_at"]
+                        if hasattr(ult_dt, 'timestamp'):
+                            ult_age = (datetime.now(ZoneInfo("UTC")) - ult_dt.astimezone(ZoneInfo("UTC"))).total_seconds()
+                            if ult_age < 300:  # respondimos hace < 5 min
+                                continue
+
+                    # LOCK REDIS para evitar procesamiento concurrente
+                    r = await conversation.get_redis()
+                    lock_key = f"docc:watchdog:lock:{conv_id}"
+                    locked = await r.set(lock_key, "1", ex=120, nx=True)
+                    if not locked:
+                        continue
+
+                    # RECUPERAR: extraer mensajes incoming sin respuesta
+                    incoming_texts = []
+                    for m in msgs:
+                        if m.get("message_type") == 0:  # incoming
+                            content = m.get("content", "")
+                            if content:
+                                incoming_texts.append(content)
+                        elif m.get("message_type") == 1:  # outgoing → ya hubo respuesta antes
+                            break
+
+                    if not incoming_texts:
+                        continue
+
+                    incoming_texts.reverse()  # poner en orden cronológico
+                    combined = "\n".join(incoming_texts)
+
+                    # Construir payload mínimo compatible con _process_accumulated_messages
+                    meta = conv.get("meta", {})
+                    meta_sender = meta.get("sender", {})
+                    fake_payload = {
+                        "_message": combined,
+                        "conversation": conv,
+                        "sender": meta_sender,
+                    }
+
+                    log.info(f"[Watchdog] RECOVERY Conv {conv_id} — {len(incoming_texts)} msg(s) sin respuesta ({int(age_seconds)}s): {combined[:80]}")
+
+                    # Procesar como si fuera un mensaje normal
+                    await _process_accumulated_messages(conv_id, [fake_payload])
+
+                    # Registrar alerta
+                    await appointments.registrar_alerta(
+                        tipo="watchdog_recovery",
+                        conversation_id=conv_id,
+                        contact_name=meta_sender.get("name", ""),
+                        contact_phone=meta_sender.get("phone_number", ""),
+                        detalle=f"Recuperados {len(incoming_texts)} mensaje(s) sin respuesta ({int(age_seconds)}s)",
+                    )
+                    recovered += 1
+                    await asyncio.sleep(1)  # pausa entre recuperaciones
+
+                except Exception as e:
+                    log.error(f"[Watchdog] Error procesando conv {conv.get('id')}: {e}")
+
+            if recovered:
+                log.info(f"[Watchdog] Ciclo completado: {recovered} conversación(es) recuperada(s)")
+
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            log.error(f"[Watchdog] Error en loop: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _followup_task
+    global _followup_task, _watchdog_task
     log.info("Iniciando agente Doc C...")
     await appointments.init_db()
     pool = await appointments.get_pool()
     await auth.init_users_table(pool)
     _followup_task = asyncio.create_task(_followup_loop())
+    _watchdog_task = asyncio.create_task(_watchdog_loop())
     # Crear labels en Chatwoot para uso desde app movil
     await ensure_account_labels([
         {"title": "pasar_supervisor", "description": "Pausar IA y pasar a supervisor", "color": "#E74C3C", "show_on_sidebar": True},
@@ -117,10 +276,12 @@ async def lifespan(app: FastAPI):
         {"title": "cita_agendada", "description": "Cita agendada por la IA", "color": "#3498DB", "show_on_sidebar": True},
         {"title": "ia_activa", "description": "IA respondiendo activamente", "color": "#2ECC71", "show_on_sidebar": True},
     ])
-    log.info(f"Agente listo en puerto {config.PORT} (followup loop activo)")
+    log.info(f"Agente listo en puerto {config.PORT} (followup + watchdog loops activos)")
     yield
     if _followup_task:
         _followup_task.cancel()
+    if _watchdog_task:
+        _watchdog_task.cancel()
     log.info("Apagando agente...")
 
 

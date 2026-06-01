@@ -461,6 +461,18 @@ async def get_hilo_conversacion(conversation_id: int) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+async def get_ultima_ejecucion(conversation_id: int) -> dict | None:
+    """Retorna la última ejecución (no seguimiento) de una conversación."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT * FROM ejecuciones
+            WHERE conversation_id = $1 AND tipo != 'seguimiento'
+            ORDER BY created_at DESC LIMIT 1
+        """, conversation_id)
+        return dict(row) if row else None
+
+
 async def upsert_seguimiento(conversation_id: int, contact_name: str, cita_creada: bool = False, interesado: bool = False):
     """Actualiza o crea el tracking de seguimiento para una conversacion."""
     pool = await get_pool()

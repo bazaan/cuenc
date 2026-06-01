@@ -134,6 +134,32 @@ async def ensure_account_labels(labels: list[dict]):
                     log.warning(f"No se pudo crear label '{lbl['title']}': {resp.status_code} {resp.text}")
 
 
+async def list_open_conversations(page: int = 1) -> list[dict]:
+    """Lista conversaciones abiertas (paginadas, 25 por página)."""
+    url = f"{BASE}/conversations?status=open&page={page}"
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(url, headers=HEADERS)
+        if resp.status_code >= 400:
+            log.error(f"Chatwoot list conversations error {resp.status_code}")
+            return []
+        data = resp.json().get("data", {})
+        return data.get("payload", [])
+
+
+async def get_conversation_messages(conversation_id: int, limit: int = 5) -> list[dict]:
+    """Obtiene los últimos mensajes de una conversación."""
+    url = f"{BASE}/conversations/{conversation_id}/messages"
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(url, headers=HEADERS)
+        if resp.status_code >= 400:
+            return []
+        msgs = resp.json().get("payload", [])
+        if isinstance(msgs, dict):
+            msgs = msgs.get("messages", [])
+        # Chatwoot retorna en orden desc por defecto
+        return msgs[:limit]
+
+
 async def toggle_status(conversation_id: int, status: str = "open"):
     """Cambia el status de una conversacion (open, pending, resolved, snoozed)."""
     url = f"{BASE}/conversations/{conversation_id}/toggle_status"
