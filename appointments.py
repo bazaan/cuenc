@@ -116,6 +116,16 @@ async def init_db():
                 created_at TIMESTAMPTZ DEFAULT NOW()
             );
 
+            -- Turnos bloqueados (equipo bloquea manana o tarde de un dia especifico)
+            CREATE TABLE IF NOT EXISTS turnos_bloqueados (
+                id SERIAL PRIMARY KEY,
+                fecha DATE NOT NULL,
+                turno TEXT NOT NULL CHECK (turno IN ('manana', 'tarde')),
+                motivo TEXT DEFAULT 'sin cupos',
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(fecha, turno)
+            );
+
             -- Alertas (handoff a supervisor + citas agendadas)
             CREATE TABLE IF NOT EXISTS alertas (
                 id SERIAL PRIMARY KEY,
@@ -148,6 +158,16 @@ async def crear_cita(cita: Cita) -> int | None:
             if existing:
                 log.warning(f"Cita duplicada bloqueada: conv {cita.conversation_id} ya tiene cita #{existing}")
                 return existing
+
+        # Verificar turno bloqueado antes de crear
+        turno = "manana" if cita.hora.hour < 12 else "tarde"
+        turno_bloq = await conn.fetchval(
+            "SELECT 1 FROM turnos_bloqueados WHERE fecha = $1 AND turno = $2",
+            cita.fecha, turno,
+        )
+        if turno_bloq:
+            log.warning(f"TURNO BLOQUEADO: {cita.fecha} {turno} — no se crea cita")
+            return None
 
         # Prevenir double-booking con lock advisory para evitar race conditions
         # Lock basado en fecha+hora (hash único por slot)
@@ -288,28 +308,70 @@ async def get_dias_bloqueados() -> list[dict]:
         return [{"fecha": r["fecha"].isoformat(), "motivo": r["motivo"]} for r in rows]
 
 
-async def get_slots_disponibles(fecha: date, gcal_busy: list | None = None) -> list[str]:
+async def bloquear_turno(fecha: date, turno: str, motivo: str = "sin cupos"):
+    """Bloquea un turno (manana/tarde) de un dia especifico."""
+    if turno not in ("manana", "tarde"):
+        raise ValueError(f"Turno invalido: {turno}. Usar 'manana' o 'tarde'.")
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO turnos_bloqueados (fecha, turno, motivo) VALUES ($1, $2, $3)
+            ON CONFLICT (fecha, turno) DO UPDATE SET motivo = $3
+        """, fecha, turno, motivo)
+    log.info(f"Turno bloqueado: {fecha} {turno} ({motivo})")
+
+
+async def desbloquear_turno(fecha: date, turno: str):
+    """Desbloquea un turno de un dia."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM turnos_bloqueados WHERE fecha = $1 AND turno = $2",
+            fecha, turno,
+        )
+    log.info(f"Turno desbloqueado: {fecha} {turno}")
+
+
+async def get_turnos_bloqueados(fecha: date | None = None) -> list[dict]:
+    """Lista turnos bloqueados. Si fecha es None, retorna todos los futuros."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        if fecha:
+            rows = await conn.fetch(
+                "SELECT fecha, turno, motivo FROM turnos_bloqueados WHERE fecha = $1 ORDER BY turno",
+                fecha,
+            )
+        else:
+            rows = await conn.fetch(
+                "SELECT fecha, turno, motivo FROM turnos_bloqueados WHERE fecha >= CURRENT_DATE ORDER BY fecha, turno"
+            )
+        return [{"fecha": r["fecha"].isoformat(), "turno": r["turno"], "motivo": r["motivo"]} for r in rows]
+
+
+async def is_turno_bloqueado(fecha: date, turno: str) -> bool:
+    """Verifica si un turno esta bloqueado."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchval(
+            "SELECT 1 FROM turnos_bloqueados WHERE fecha = $1 AND turno = $2",
+            fecha, turno,
+        )
+        return row is not None
+
+
+async def detectar_y_bloquear_turno_lleno(fecha: date, gcal_busy: list | None = None):
     """
-    Retorna slots disponibles formateados.
-    Solo muestra SLOTS_VISIBLES opciones dispersas (pedido del doctor).
-    gcal_busy: lista de tuplas (start_dt, end_dt) de periodos ocupados en GCal.
+    Detecta si un turno (mañana/tarde) está lleno combinando DB + GCal
+    y lo auto-bloquea si no quedan slots. Retorna los turnos bloqueados.
     """
-    # Si el día está bloqueado, no hay slots
     if await is_dia_bloqueado(fecha):
         return []
 
     todos = generar_slots(fecha)
-    ocupados = await get_slots_ocupados(fecha)
-    disponibles = [s for s in todos if s not in ocupados]
+    ocupados_db = await get_slots_ocupados(fecha)
+    disponibles = [s for s in todos if s not in ocupados_db]
 
-    # Si es hoy, filtrar slots que ya pasaron
-    from zoneinfo import ZoneInfo
-    ahora = datetime.now(ZoneInfo("America/Lima"))
-    if fecha == ahora.date():
-        hora_actual = ahora.time()
-        disponibles = [s for s in disponibles if s > hora_actual]
-
-    # Filtrar slots ocupados en Google Calendar
+    # Aplicar filtro GCal
     if gcal_busy:
         from zoneinfo import ZoneInfo
         lima = ZoneInfo("America/Lima")
@@ -327,6 +389,83 @@ async def get_slots_disponibles(fecha: date, gcal_busy: list | None = None) -> l
                     break
             if not busy:
                 filtered.append(slot)
+        disponibles = filtered
+
+    # Separar por turno
+    manana_disp = [s for s in disponibles if s.hour < 12]
+    tarde_disp = [s for s in disponibles if s.hour >= 12]
+
+    turnos_auto = []
+
+    # Solo auto-bloquear si el turno tiene slots definidos pero 0 disponibles
+    todos_manana = [s for s in todos if s.hour < 12]
+    todos_tarde = [s for s in todos if s.hour >= 12]
+
+    if todos_manana and not manana_disp and not await is_turno_bloqueado(fecha, "manana"):
+        await bloquear_turno(fecha, "manana", "auto: sin cupos (GCal+DB)")
+        log.warning(f"AUTO-BLOQUEO turno mañana {fecha}: 0/{len(todos_manana)} slots disponibles")
+        turnos_auto.append("manana")
+
+    if todos_tarde and not tarde_disp and not await is_turno_bloqueado(fecha, "tarde"):
+        await bloquear_turno(fecha, "tarde", "auto: sin cupos (GCal+DB)")
+        log.warning(f"AUTO-BLOQUEO turno tarde {fecha}: 0/{len(todos_tarde)} slots disponibles")
+        turnos_auto.append("tarde")
+
+    return turnos_auto
+
+
+async def get_slots_disponibles(fecha: date, gcal_busy: list | None = None) -> list[str]:
+    """
+    Retorna slots disponibles formateados.
+    Solo muestra SLOTS_VISIBLES opciones dispersas (pedido del doctor).
+    gcal_busy: lista de tuplas (start_dt, end_dt) de periodos ocupados en GCal.
+    """
+    # Si el día está bloqueado, no hay slots
+    if await is_dia_bloqueado(fecha):
+        return []
+
+    todos = generar_slots(fecha)
+    ocupados = await get_slots_ocupados(fecha)
+    disponibles = [s for s in todos if s not in ocupados]
+
+    # Filtrar turnos bloqueados (manana < 12:00, tarde >= 12:00)
+    manana_bloq = await is_turno_bloqueado(fecha, "manana")
+    tarde_bloq = await is_turno_bloqueado(fecha, "tarde")
+    if manana_bloq:
+        disponibles = [s for s in disponibles if s.hour >= 12]
+    if tarde_bloq:
+        disponibles = [s for s in disponibles if s.hour < 12]
+
+    # Si es hoy, filtrar slots que ya pasaron
+    from zoneinfo import ZoneInfo
+    ahora = datetime.now(ZoneInfo("America/Lima"))
+    if fecha == ahora.date():
+        hora_actual = ahora.time()
+        disponibles = [s for s in disponibles if s > hora_actual]
+
+    # Filtrar slots ocupados en Google Calendar
+    # gcal_busy=None means GCal error (token expired, etc) — log warning
+    # gcal_busy=[] means no busy slots — normal
+    if gcal_busy is None:
+        log.warning(f"GCal no disponible para {fecha} — slots basados solo en DB (pueden faltar citas externas)")
+    elif gcal_busy:
+        from zoneinfo import ZoneInfo
+        lima = ZoneInfo("America/Lima")
+        filtered = []
+        for slot in disponibles:
+            slot_start = datetime.combine(fecha, slot).replace(tzinfo=lima)
+            slot_end = slot_start + timedelta(minutes=INTERVALO_CITAS_MIN)
+            busy = False
+            for bs, be in gcal_busy:
+                if bs.tzinfo:
+                    bs = bs.astimezone(lima)
+                    be = be.astimezone(lima)
+                if slot_start < be and slot_end > bs:
+                    busy = True
+                    break
+            if not busy:
+                filtered.append(slot)
+        log.info(f"GCal filtro {fecha}: {len(disponibles)} -> {len(filtered)} slots (eliminó {len(disponibles)-len(filtered)})")
         disponibles = filtered
 
     if not disponibles:

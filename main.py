@@ -582,10 +582,12 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
     async def _get_slots_for_date(fecha_obj):
         if fecha_obj.weekday() == 6:
             return [], "Domingo (no atendemos)"
-        gcal_busy = []
+        gcal_busy = None
         gcal_token = await appointments.get_gcal_token()
         if gcal_token:
             gcal_busy = await gcal.get_busy_slots(gcal_token, fecha_obj)
+        # Auto-detectar y bloquear turnos llenos (GCal + DB)
+        await appointments.detectar_y_bloquear_turno_lleno(fecha_obj, gcal_busy)
         s = await appointments.get_slots_disponibles(fecha_obj, gcal_busy=gcal_busy)
         ctx = f"{dias_es[fecha_obj.weekday()]} {fecha_obj.day} de {meses_es[fecha_obj.month]}"
         return s, ctx
@@ -742,6 +744,17 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
                     )
                     if gcal_eid:
                         await appointments.update_cita_gcal_id(cita_id, gcal_eid)
+
+                # Auto-detectar si el turno quedó lleno tras crear esta cita
+                try:
+                    gcal_busy_post = None
+                    if gcal_token:
+                        gcal_busy_post = await gcal.get_busy_slots(gcal_token, fecha)
+                    auto_bloq = await appointments.detectar_y_bloquear_turno_lleno(fecha, gcal_busy_post)
+                    if auto_bloq:
+                        log.info(f"[Conv {conversation_id}] Turno(s) auto-bloqueado(s) tras cita: {auto_bloq}")
+                except Exception as e:
+                    log.error(f"Error en auto-detección turno lleno: {e}")
 
                 await add_label(conversation_id, "cita_agendada")
                 await set_custom_attributes(conversation_id, {"ai_status": "cita_agendada", "pasar_supervisor": "si"})
@@ -1299,6 +1312,11 @@ async def eliminar_cita(cita_id: int, request: Request):
     gcal_token = await appointments.get_gcal_token()
     if gcal_token and cita.get("gcal_event_id"):
         await gcal.delete_event(gcal_token, cita["gcal_event_id"])
+    # Auto-desbloquear turno si la cancelación libera cupos
+    turno = "manana" if cita["hora"].hour < 12 else "tarde"
+    if await appointments.is_turno_bloqueado(cita["fecha"], turno):
+        await appointments.desbloquear_turno(cita["fecha"], turno)
+        log.info(f"Turno {turno} {cita['fecha']} auto-desbloqueado tras cancelación de cita #{cita_id}")
     log.info(f"Cita #{cita_id} eliminada (cancelada) por {payload.get('username', '?')}")
     return {"ok": True, "cita_id": cita_id}
 
@@ -1416,6 +1434,39 @@ async def desbloquear_dia(fecha: str):
     f = date.fromisoformat(fecha)
     await appointments.desbloquear_dia(f)
     return {"ok": True, "fecha": fecha}
+
+
+# ─── Turnos bloqueados (manana/tarde por día) ───
+
+@app.get("/api/turnos-bloqueados")
+async def get_turnos_bloqueados(fecha: str = None):
+    """Lista turnos bloqueados. Opcional: filtrar por fecha."""
+    f = date.fromisoformat(fecha) if fecha else None
+    turnos = await appointments.get_turnos_bloqueados(f)
+    return {"turnos": turnos}
+
+
+@app.post("/api/turnos-bloqueados")
+async def bloquear_turno(request: Request):
+    """Bloquear un turno (manana/tarde) de un día."""
+    body = await request.json()
+    fecha = date.fromisoformat(body["fecha"])
+    turno = body["turno"]  # "manana" o "tarde"
+    if turno not in ("manana", "tarde"):
+        return JSONResponse({"error": "turno debe ser 'manana' o 'tarde'"}, status_code=400)
+    motivo = body.get("motivo", "sin cupos")
+    await appointments.bloquear_turno(fecha, turno, motivo)
+    return {"ok": True, "fecha": body["fecha"], "turno": turno, "motivo": motivo}
+
+
+@app.delete("/api/turnos-bloqueados")
+async def desbloquear_turno(request: Request):
+    """Desbloquear un turno de un día."""
+    body = await request.json()
+    fecha = date.fromisoformat(body["fecha"])
+    turno = body["turno"]
+    await appointments.desbloquear_turno(fecha, turno)
+    return {"ok": True, "fecha": body["fecha"], "turno": turno}
 
 
 # ─── Slots bloqueados (Ocupado Rápido) ───

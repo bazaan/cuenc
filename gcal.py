@@ -281,7 +281,9 @@ async def list_events(token_data, fecha_inicio, fecha_fin) -> list[dict]:
 
 async def get_busy_slots(token_data, fecha, hora_inicio=time(8, 30), hora_fin=time(18, 0)):
     try:
-        return await asyncio.to_thread(_get_busy_sync, token_data, fecha, hora_inicio, hora_fin)
+        result = await asyncio.to_thread(_get_busy_sync, token_data, fecha, hora_inicio, hora_fin)
+        log.info(f"GCal busy slots for {fecha}: {len(result)} busy periods")
+        return result
     except Exception as e:
-        log.error(f"GCal get_busy error: {e}")
-        return []
+        log.error(f"GCal get_busy error for {fecha}: {e} — slots will NOT be filtered by GCal!")
+        return None  # None = error (distinguish from [] = no busy slots)
