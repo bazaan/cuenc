@@ -147,7 +147,7 @@ async def list_open_conversations(page: int = 1) -> list[dict]:
 
 
 async def get_conversation_messages(conversation_id: int, limit: int = 5) -> list[dict]:
-    """Obtiene los últimos mensajes de una conversación."""
+    """Obtiene los últimos mensajes de una conversación (más reciente primero)."""
     url = f"{BASE}/conversations/{conversation_id}/messages"
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(url, headers=HEADERS)
@@ -156,7 +156,8 @@ async def get_conversation_messages(conversation_id: int, limit: int = 5) -> lis
         msgs = resp.json().get("payload", [])
         if isinstance(msgs, dict):
             msgs = msgs.get("messages", [])
-        # Chatwoot retorna en orden desc por defecto
+        # Chatwoot retorna en orden ascendente — invertir para tener más reciente primero
+        msgs.reverse()
         return msgs[:limit]
 
 

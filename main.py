@@ -531,6 +531,17 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
                 state.contact_phone = contact_phone
             state = await add_message(state, "user", combined_message)
             await save_state(state)
+            # Registrar en ejecuciones para que el watchdog no lo recoja
+            await appointments.registrar_ejecucion(
+                conversation_id=conversation_id,
+                contact_name=contact_name or "",
+                canal=state.canal.value if state.canal else "whatsapp",
+                mensaje_usuario=combined_message[:500],
+                respuesta_agente=saludo[:500],
+                tipo="saludo",
+                cita_creada=False,
+                contact_phone=contact_phone or "",
+            )
             log.info(f"[Conv {conversation_id}] Saludo inicial enviado (conversación nueva) — esperando respuesta del paciente")
             return
         else:
