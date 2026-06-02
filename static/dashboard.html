@@ -1748,8 +1748,8 @@ async function calSaveCita() {
     const [year, month, day] = fecha.split('-').map(Number);
     calBaseDate = new Date(year, month - 1, day);
     calRender();
-    // Also refresh agenda if we go back
-    cargarCitas(fechaActual, true);
+    // Refresh agenda for the cita's date
+    cargarCitas(fecha, true);
   } catch(e) { toast('Error: ' + e.message); }
 }
 </script>
