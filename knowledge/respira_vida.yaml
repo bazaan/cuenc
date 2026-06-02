@@ -8,7 +8,7 @@ clinica:
   citas_cada: "15 minutos"
 
 precios:
-  consulta: "S/50.00"
+  consulta: "S/200.00"
   pruebas_lab: "S/100 a S/300 (aproximado por prueba)"
   panel_alergias: "S/170 (31 alérgenos + IgE total)"
   observacion_laboral: "S/50"
