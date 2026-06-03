@@ -46,6 +46,8 @@ HORARIO_FIN = "16:00"
 HORARIO_FIN_SABADO = "12:00"
 INTERVALO_CITAS_MIN = 10
 SLOTS_VISIBLES = 3  # Mostrar solo 3 horarios (pedido del doctor)
+TURNO_MANANA = ["08:30", "11:00"]  # Turno mañana: 8:30-11:00 (Lun-Sab)
+TURNO_TARDE = ["14:00", "15:40"]   # Turno tarde: 14:00-15:40 (solo Lun-Vie)
 
 # --- Handoff ---
 CHATWOOT_TEAM_ID = int(os.getenv("CHATWOOT_TEAM_ID", "0"))  # Team "Asesoras" en Chatwoot para handoff
