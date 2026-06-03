@@ -505,47 +505,42 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
         # Marcar en Chatwoot que la IA está activa en esta conversación
         await set_custom_attributes(conversation_id, {"ai_status": "ia_activa", "pasar_supervisor": "no"})
 
-    # Enviar saludo inicial solo en conversaciones REALMENTE nuevas
-    # (no cuando Redis TTL expiró en una conversación existente)
+    # Enviar saludo inicial SIEMPRE que sea primer mensaje (nueva o reciclada)
+    # El paciente merece un saludo cordial cada vez que inicia contacto
     if is_first_message:
-        # Verificar si hay interacciones previas en BD
-        prev = await appointments.get_hilo_conversacion(conversation_id)
-        if not prev:
-            saludo = (
-                "Gracias por comunicarte con nosotros.\n"
-                "Somos la *Clínica Respira Vida* especializada en Neumología y Alergias Respiratorias.\n\n"
-                "Por favor escriba la opción que necesite:\n\n"
-                "▪️ Costos y disponibilidad de citas\n"
-                "▪️ Horario de citas\n"
-                "▪️ Dirección\n"
-                "▪️ Interconsulta laboral\n"
-                "▪️ Otros\n\n"
-                "Recuerde que la atención es solo presencial y con previa cita."
-            )
-            await send_message(conversation_id, saludo)
-            state = await add_message(state, "assistant", saludo)
-            # Guardar el mensaje del usuario en historial antes de retornar
-            if contact_name and not state.contact_name:
-                state.contact_name = contact_name
-            if contact_phone and not state.contact_phone:
-                state.contact_phone = contact_phone
-            state = await add_message(state, "user", combined_message)
-            await save_state(state)
-            # Registrar en ejecuciones para que el watchdog no lo recoja
-            await appointments.registrar_ejecucion(
-                conversation_id=conversation_id,
-                contact_name=contact_name or "",
-                canal=state.canal.value if state.canal else "whatsapp",
-                mensaje_usuario=combined_message[:500],
-                respuesta_agente=saludo[:500],
-                tipo="saludo",
-                cita_creada=False,
-                contact_phone=contact_phone or "",
-            )
-            log.info(f"[Conv {conversation_id}] Saludo inicial enviado (conversación nueva) — esperando respuesta del paciente")
-            return
-        else:
-            log.info(f"[Conv {conversation_id}] Estado Redis expirado, reconectando (conv existente, sin saludo)")
+        saludo = (
+            "Gracias por comunicarte con nosotros.\n"
+            "Somos la *Clínica Respira Vida* especializada en Neumología y Alergias Respiratorias.\n\n"
+            "Por favor escriba la opción que necesite:\n\n"
+            "▪️ Costos y disponibilidad de citas\n"
+            "▪️ Horario de citas\n"
+            "▪️ Dirección\n"
+            "▪️ Interconsulta laboral\n"
+            "▪️ Otros\n\n"
+            "Recuerde que la atención es solo presencial y con previa cita."
+        )
+        await send_message(conversation_id, saludo)
+        state = await add_message(state, "assistant", saludo)
+        # Guardar el mensaje del usuario en historial antes de retornar
+        if contact_name and not state.contact_name:
+            state.contact_name = contact_name
+        if contact_phone and not state.contact_phone:
+            state.contact_phone = contact_phone
+        state = await add_message(state, "user", combined_message)
+        await save_state(state)
+        # Registrar en ejecuciones para que el watchdog no lo recoja
+        await appointments.registrar_ejecucion(
+            conversation_id=conversation_id,
+            contact_name=contact_name or "",
+            canal=state.canal.value if state.canal else "whatsapp",
+            mensaje_usuario=combined_message[:500],
+            respuesta_agente=saludo[:500],
+            tipo="saludo",
+            cita_creada=False,
+            contact_phone=contact_phone or "",
+        )
+        log.info(f"[Conv {conversation_id}] Saludo inicial enviado — esperando respuesta del paciente")
+        return
 
     # Actualizar datos de contacto si tenemos nuevos
     if contact_name and not state.contact_name:
