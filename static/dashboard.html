@@ -748,7 +748,10 @@ document.getElementById('datePicker').value = fechaActual;
 cargarCitas(fechaActual);
 
 // Auto-refresh
-setInterval(() => { if (currentSection === 'agenda') cargarCitas(fechaActual, true); }, 30000);
+setInterval(() => {
+  if (currentSection === 'agenda') cargarCitas(fechaActual, true);
+  else if (currentSection === 'calendario') calRender();
+}, 10000);
 
 // ── AI TOGGLE ──
 let aiEnabled = null;

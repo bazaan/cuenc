@@ -622,7 +622,7 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
             fecha_ctx = "fecha solicitada y alternativa"
             slots = alternativa_info
     else:
-        # Sin fecha detectada: buscar los próximos días "livianos" (< CITAS_DIA_LLENO)
+        # Sin fecha detectada: PRIORIZAR HOY → MAÑANA → después
         hoy_fecha = _hoy_lima()
         slots_info = []
         dias_revisados = 0
@@ -633,11 +633,11 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
                 n_citas = await appointments.contar_citas_dia(fecha_cursor)
                 s, ctx = await _get_slots_for_date(fecha_cursor)
                 if fecha_cursor == hoy_fecha:
-                    label = f"Hoy ({ctx})"
+                    label = f"⭐ Hoy ({ctx}) — PRIORIDAD, ofrecer primero"
                 elif fecha_cursor == hoy_fecha + timedelta(days=1):
-                    label = f"Mañana ({ctx})"
+                    label = f"⭐ Mañana ({ctx}) — PRIORIDAD, ofrecer si hoy está lleno"
                 else:
-                    label = ctx.capitalize()
+                    label = f"{ctx.capitalize()} — solo ofrecer si hoy y mañana están llenos"
                 if s and n_citas < CITAS_DIA_LLENO:
                     slots_info.append(f"{label}: {', '.join(s)}")
                     dias_ofrecidos += 1
@@ -645,7 +645,7 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
                     slots_info.append(f"{label}: DÍA CARGADO, no ofrecer proactivamente")
             fecha_cursor += timedelta(days=1)
             dias_revisados += 1
-        fecha_ctx = "próximos días disponibles"
+        fecha_ctx = "próximos días disponibles (PRIORIZAR hoy y mañana)"
         slots = slots_info
 
     # CHECK 1: Re-verificar handoff antes de generar respuesta (pudo activarse durante debounce/slots)
