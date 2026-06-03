@@ -1153,7 +1153,18 @@ async def crear_cita_manual(request: Request):
             tipo_paciente=body.get("tipo_paciente"),
             notas_equipo=body.get("notas", ""),
         )
-        cita_id = await appointments.crear_cita(cita)
+        # Crear cita manual — bypass de validaciones de turno/conversación
+        pool = await appointments.get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                INSERT INTO citas (nombre_paciente, telefono, fecha, hora, motivo, canal, estado, tipo_paciente, notas_equipo)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                RETURNING id
+            """, cita.nombre_paciente, cita.telefono, cita.fecha, cita.hora,
+                cita.motivo, cita.canal.value, cita.estado.value,
+                cita.tipo_paciente, cita.notas_equipo)
+            cita_id = row["id"]
+        log.info(f"Cita manual #{cita_id}: {cita.nombre_paciente} {fecha} {hora} (estado={cita.estado.value})")
 
         # Crear evento en Google Calendar si conectado
         gcal_token = await appointments.get_gcal_token()
