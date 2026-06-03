@@ -8,12 +8,9 @@ CHATWOOT_API_TOKEN = os.getenv("CHATWOOT_API_TOKEN", "")
 CHATWOOT_ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID", "1")
 CHATWOOT_BOT_TOKEN = os.getenv("CHATWOOT_BOT_TOKEN", "VjkEDYABP3ejGFum9DHfmM8w")  # Bot token de Chatwoot
 
-# --- OpenAI (Whisper transcripcion audio) ---
+# --- OpenAI (API + Whisper) ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-
-# --- OpenAI API ---
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-AI_MODEL = os.getenv("AI_MODEL", "gpt-5-mini")
+AI_MODEL = os.getenv("AI_MODEL", "gpt-5.4-mini")
 AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "5000"))  # Respuestas + JSON cita (amplio para evitar errores por longitud de prompt)
 
 # --- Redis (estado de conversacion) ---
@@ -42,12 +39,20 @@ DOCTOR_ESPECIALIDAD = "Neumólogo"
 CLINICA_TELEFONO = os.getenv("CLINICA_TELEFONO", "")  # Para derivar llamadas
 CLINICA_DIRECCION = "Av. Arequipa 2050, Lince, Lima (altura CC Risso)"
 HORARIO_INICIO = "08:30"
-HORARIO_FIN = "16:00"
-HORARIO_FIN_SABADO = "12:00"
+HORARIO_FIN = "16:00"  # legacy, no se usa directamente
+HORARIO_FIN_SABADO = "12:00"  # legacy, no se usa directamente
+# Turnos reales de agendamiento
+TURNO_MANANA = ("08:30", "11:00")  # Lun-Sab
+TURNO_TARDE = ("14:00", "15:40")   # Solo Lun-Vie
 INTERVALO_CITAS_MIN = 10
 SLOTS_VISIBLES = 3  # Mostrar solo 3 horarios (pedido del doctor)
-TURNO_MANANA = ["08:30", "11:00"]  # Turno mañana: 8:30-11:00 (Lun-Sab)
-TURNO_TARDE = ["14:00", "15:40"]   # Turno tarde: 14:00-15:40 (solo Lun-Vie)
+CITAS_DIA_LLENO = 12  # Si un dia tiene >= 12 citas, no ofrecerlo proactivamente
 
 # --- Handoff ---
 CHATWOOT_TEAM_ID = int(os.getenv("CHATWOOT_TEAM_ID", "0"))  # Team "Asesoras" en Chatwoot para handoff
+
+# Telefonos del equipo — la IA ignora mensajes de estos numeros
+TEAM_PHONES = set(filter(None, os.getenv("TEAM_PHONES", "969460204").split(",")))
+
+# ID del usuario Chatwoot cuyo token usa el bot — excluir del auto-handoff
+BOT_CHATWOOT_USER_ID = int(os.getenv("BOT_CHATWOOT_USER_ID", "1"))
