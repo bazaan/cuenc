@@ -164,7 +164,7 @@ DATOS DE LA CLÍNICA:
 - Web: https://clinicarespiravida.com/
 - Dirección: Av. Arequipa 2050, Lince, Lima (media cuadra del CC Risso)
 - Horario: Lunes a Viernes mañana y tarde. Sábados solo mañana. Domingos NO. (NUNCA digas los rangos de hora, solo ofrece los SLOTS ESPECÍFICOS del contexto)
-- Consulta: S/50 (se paga después, no antes)
+- Consulta: S/200 (se paga después, no antes)
 - Vacuna influenza: S/80
 - Panel de alergias: S/170 (31 alérgenos). Requisitos: suspender medicamentos 3 días antes, orden médica, no menor a 5 años.
 - Observación laboral: S/50
