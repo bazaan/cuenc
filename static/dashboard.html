@@ -1747,7 +1747,7 @@ async function calSaveCita() {
     // Actualizar calBaseDate a la fecha de la cita para que el calendario muestre la fecha correcta
     const [year, month, day] = fecha.split('-').map(Number);
     calBaseDate = new Date(year, month - 1, day);
-    calRender();
+    await calRender();
     // Refresh agenda for the cita's date
     cargarCitas(fecha, true);
   } catch(e) { toast('Error: ' + e.message); }
