@@ -9,7 +9,7 @@ clinica:
 
 precios:
   consulta: "S/200.00"
-  pruebas_lab: "S/100 a S/300 (aproximado por prueba)"
+  pruebas_lab: "S/100 aprox"
   panel_alergias: "S/170 (31 alérgenos + IgE total)"
   observacion_laboral: "S/50"
 

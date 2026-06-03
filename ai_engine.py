@@ -76,7 +76,7 @@ REGLA DE NO INSISTIR (MUY IMPORTANTE):
 
 REGLA DE PRECIOS:
 - "costos"/"precio"/"cuánto cuesta" genérico → "La consulta es S/200."
-- Si PREGUNTAN ESPECÍFICAMENTE por pruebas o exámenes adicionales → "Las pruebas tienen un costo de S/300."
+- Si PREGUNTAN ESPECÍFICAMENTE por pruebas o exámenes adicionales → "Las pruebas tienen un costo aproximado de S/100."
 - NO menciones las pruebas a menos que el paciente PREGUNTE por ellas.
 - NO sueltes lista de precios completa. Solo responde el precio específico si preguntan por algo específico.
 
