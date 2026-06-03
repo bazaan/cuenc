@@ -933,6 +933,7 @@ async function setEstado(id, estado) {
   await fetch(API + '/citas/' + id + '/estado', { method:'PATCH', headers:authHeaders, body:JSON.stringify({estado}) });
   toast('Cita #' + id + ' → ' + estadoLabel(estado));
   cargarCitas(fechaActual);
+  if (currentSection === 'calendario') calRender();
 }
 
 function abrirEditarCita(id) {
@@ -1704,7 +1705,8 @@ async function calDeleteCita() {
     if (!r.ok) throw new Error('Error al eliminar');
     toast('Cita eliminada');
     calCloseModal();
-    renderCalendar();
+    calRender();
+    cargarCitas(fechaActual, true);
   } catch(e) {
     toast('Error: ' + e.message);
   }
