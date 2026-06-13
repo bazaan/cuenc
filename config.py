@@ -15,7 +15,7 @@ AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "5000"))  # Respuestas + JSON cit
 
 # --- Redis (estado de conversacion) ---
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-CONVERSATION_TTL = int(os.getenv("CONVERSATION_TTL", "3600"))  # 1h sin actividad = reset
+CONVERSATION_TTL = int(os.getenv("CONVERSATION_TTL", "21600"))  # 6h sin actividad = reset
 
 # --- PostgreSQL (citas) ---
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://docc:docc_s3cur3@localhost:5432/docc_agent")

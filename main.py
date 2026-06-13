@@ -22,7 +22,7 @@ from models import ConversationState, Cita, EstadoCita, Canal
 import conversation
 from conversation import get_state, save_state, delete_state, add_message
 from ai_engine import generate_response, extract_appointment_json, extract_supervisor_tag, clean_response, get_followup_message
-from chatwoot_client import send_message, add_label, remove_label, get_conversation_labels, assign_team, set_custom_attributes, get_custom_attributes, ensure_account_labels, list_open_conversations, get_conversation_messages
+from chatwoot_client import send_message, add_label, remove_label, get_conversation_labels, assign_team, set_custom_attributes, get_custom_attributes, ensure_account_labels, list_open_conversations, get_conversation_messages, get_conversation_messages_all
 from transcriber import transcribe_audio, describe_image
 import appointments
 import auth
@@ -30,7 +30,7 @@ import gcal
 from config import GOOGLE_CLIENT_ID
 
 # ─── Control: pausar/reanudar IA ───
-AI_ENABLED = os.getenv("AI_ENABLED", "false").lower() == "true"  # Controlar vía env o API
+AI_ENABLED = os.getenv("AI_ENABLED", "true").lower() == "true"  # Default TRUE — si el container se reinicia, la IA arranca activa
 
 # ─── Debounce: acumular mensajes rápidos ───
 DEBOUNCE_SECONDS = 30
@@ -103,23 +103,22 @@ async def _followup_loop():
 
 
 _watchdog_task: asyncio.Task | None = None
-WATCHDOG_INTERVAL = 180  # cada 3 minutos
-WATCHDOG_MIN_AGE = 180   # solo mensajes sin respuesta hace >= 3 min
+_watchdog2_task: asyncio.Task | None = None
+WATCHDOG_INTERVAL = 60   # cada 1 minuto
+WATCHDOG_MIN_AGE = 90    # solo mensajes sin respuesta hace >= 1.5 min
 WATCHDOG_MAX_AGE = 3600  # ignorar mensajes de más de 1 hora (probablemente legítimos)
+WATCHDOG2_INTERVAL = 30  # capa 2: cada 30 segundos
+WATCHDOG2_MIN_AGE = 45   # capa 2: mensajes sin respuesta hace >= 45s
 
 
 async def _watchdog_loop():
     """Background: detecta conversaciones abiertas con mensajes incoming sin respuesta."""
+    from zoneinfo import ZoneInfo
     while True:
         try:
             await asyncio.sleep(WATCHDOG_INTERVAL)
 
             if not AI_ENABLED:
-                continue
-
-            from zoneinfo import ZoneInfo
-            now_lima = datetime.now(ZoneInfo("America/Lima"))
-            if now_lima.hour >= 21 or now_lima.hour < 8:
                 continue
 
             # Obtener conversaciones abiertas de Chatwoot
@@ -259,15 +258,133 @@ async def _watchdog_loop():
             log.error(f"[Watchdog] Error en loop: {e}")
 
 
+async def _watchdog2_loop():
+    """Capa 2: watchdog rápido — revisa cada 30s para mensajes perdidos recientes."""
+    from zoneinfo import ZoneInfo
+    while True:
+        try:
+            await asyncio.sleep(WATCHDOG2_INTERVAL)
+
+            if not AI_ENABLED:
+                continue
+
+            conversations = await list_open_conversations(page=1)
+
+            for conv in conversations[:15]:  # solo las 15 más recientes
+                try:
+                    conv_id = conv.get("id")
+                    if not conv_id:
+                        continue
+
+                    if conv_id in _pending_tasks or conv_id in _pending_messages or conv_id in _processing:
+                        continue
+
+                    msgs = await get_conversation_messages(conv_id, limit=3)
+                    if not msgs:
+                        continue
+
+                    last_real = None
+                    for m in msgs:
+                        if m.get("message_type") in (0, 1):
+                            last_real = m
+                            break
+
+                    if not last_real or last_real.get("message_type") != 0:
+                        continue
+
+                    msg_time = last_real.get("created_at")
+                    if not msg_time:
+                        continue
+                    try:
+                        if isinstance(msg_time, (int, float)):
+                            msg_dt = datetime.fromtimestamp(msg_time, tz=ZoneInfo("UTC"))
+                        else:
+                            msg_dt = datetime.fromisoformat(str(msg_time).replace("Z", "+00:00"))
+                        age_seconds = (datetime.now(ZoneInfo("UTC")) - msg_dt).total_seconds()
+                    except (ValueError, TypeError):
+                        continue
+
+                    if age_seconds < WATCHDOG2_MIN_AGE or age_seconds > WATCHDOG_MIN_AGE:
+                        continue  # capa 2 solo cubre 45s-90s, capa 1 cubre 90s+
+
+                    # Filtros rápidos
+                    state = await get_state(conv_id)
+                    if state and (state.handoff or state.cita_creada):
+                        continue
+                    cw_attrs = conv.get("custom_attributes", {})
+                    if cw_attrs.get("pasar_supervisor") == "si" or cw_attrs.get("ai_status") in ("supervisor", "cita_agendada"):
+                        continue
+
+                    sender = last_real.get("sender", {})
+                    sender_phone = sender.get("phone_number", "")
+                    if sender_phone:
+                        sender_digits = ''.join(c for c in sender_phone if c.isdigit())[-9:]
+                        team_digits = {''.join(c for c in p if c.isdigit())[-9:] for p in config.TEAM_PHONES}
+                        if sender_digits in team_digits:
+                            continue
+
+                    # Lock Redis
+                    r = await conversation.get_redis()
+                    lock_key = f"docc:watchdog2:lock:{conv_id}"
+                    locked = await r.set(lock_key, "1", ex=60, nx=True)
+                    if not locked:
+                        continue
+
+                    # Recuperar
+                    incoming_texts = []
+                    for m in msgs:
+                        if m.get("message_type") == 0:
+                            content = m.get("content", "")
+                            if content:
+                                incoming_texts.append(content)
+                        elif m.get("message_type") == 1:
+                            break
+
+                    if not incoming_texts:
+                        continue
+
+                    incoming_texts.reverse()
+                    combined = "\n".join(incoming_texts)
+
+                    meta = conv.get("meta", {})
+                    meta_sender = meta.get("sender", {})
+                    fake_payload = {
+                        "_message": combined,
+                        "conversation": conv,
+                        "sender": meta_sender,
+                    }
+
+                    log.info(f"[Watchdog2] RECOVERY Conv {conv_id} — {len(incoming_texts)} msg(s) sin respuesta ({int(age_seconds)}s): {combined[:80]}")
+                    await _process_accumulated_messages(conv_id, [fake_payload])
+
+                    await appointments.registrar_alerta(
+                        tipo="watchdog2_recovery",
+                        conversation_id=conv_id,
+                        contact_name=meta_sender.get("name", ""),
+                        contact_phone=meta_sender.get("phone_number", ""),
+                        detalle=f"Capa2: {len(incoming_texts)} mensaje(s) sin respuesta ({int(age_seconds)}s)",
+                    )
+                    await asyncio.sleep(0.5)
+
+                except Exception as e:
+                    log.error(f"[Watchdog2] Error conv {conv.get('id')}: {e}")
+
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            log.error(f"[Watchdog2] Error en loop: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _followup_task, _watchdog_task
+    global _followup_task, _watchdog_task, _watchdog2_task
     log.info("Iniciando agente Doc C...")
     await appointments.init_db()
     pool = await appointments.get_pool()
     await auth.init_users_table(pool)
     _followup_task = asyncio.create_task(_followup_loop())
     _watchdog_task = asyncio.create_task(_watchdog_loop())
+    _watchdog2_task = asyncio.create_task(_watchdog2_loop())
     # Crear labels en Chatwoot para uso desde app movil
     await ensure_account_labels([
         {"title": "pasar_supervisor", "description": "Pausar IA y pasar a supervisor", "color": "#E74C3C", "show_on_sidebar": True},
@@ -276,12 +393,14 @@ async def lifespan(app: FastAPI):
         {"title": "cita_agendada", "description": "Cita agendada por la IA", "color": "#3498DB", "show_on_sidebar": True},
         {"title": "ia_activa", "description": "IA respondiendo activamente", "color": "#2ECC71", "show_on_sidebar": True},
     ])
-    log.info(f"Agente listo en puerto {config.PORT} (followup + watchdog loops activos)")
+    log.info(f"Agente listo en puerto {config.PORT} (followup + watchdog x2 loops activos)")
     yield
     if _followup_task:
         _followup_task.cancel()
     if _watchdog_task:
         _watchdog_task.cancel()
+    if _watchdog2_task:
+        _watchdog2_task.cancel()
     log.info("Apagando agente...")
 
 
@@ -493,7 +612,62 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
             return
 
     is_first_message = state is None
+    recovered_from_chatwoot = False
+
     if state is None:
+        # --- RECUPERACIÓN DE CONTEXTO DESDE CHATWOOT ---
+        # Antes de tratar como nueva, revisar si ya hubo conversación previa
+        try:
+            cw_msgs = await get_conversation_messages_all(conversation_id, limit=20)
+            cw_labels = await get_conversation_labels(conversation_id)
+
+            has_bot_messages = any(
+                m.get("message_type") == 1
+                for m in cw_msgs
+            )
+            has_handoff_label = bool({"supervisor", "pasar_supervisor", "cita_agendada"} & set(cw_labels))
+
+            if has_bot_messages:
+                # Reconstruir estado desde historial de Chatwoot
+                state = ConversationState(
+                    contact_id=contact_id,
+                    contact_name=contact_name or None,
+                    contact_phone=contact_phone or None,
+                    conversation_id=conversation_id,
+                    inbox_id=inbox_id,
+                    canal=detect_canal(channel_type),
+                    cita_creada="cita_agendada" in cw_labels,
+                    handoff=has_handoff_label,
+                    handoff_at=datetime.now().isoformat() if has_handoff_label else None,
+                )
+                # Reconstruir historial de mensajes desde Chatwoot
+                for m in cw_msgs:
+                    msg_type = m.get("message_type")
+                    content = m.get("content") or ""
+                    if not content:
+                        continue
+                    if msg_type == 0:  # incoming
+                        state.messages.append({"role": "user", "content": content})
+                    elif msg_type == 1:  # outgoing
+                        state.messages.append({"role": "assistant", "content": content})
+                # Mantener solo últimos 16
+                if len(state.messages) > 16:
+                    state.messages = state.messages[-16:]
+
+                await save_state(state)
+                is_first_message = False
+                recovered_from_chatwoot = True
+                log.info(f"[Conv {conversation_id}] Estado RECUPERADO desde Chatwoot — {len(state.messages)} msgs, handoff={state.handoff}, cita={state.cita_creada}")
+
+                # Si tiene handoff activo, no responder
+                if state.handoff:
+                    log.info(f"[Conv {conversation_id}] HANDOFF recuperado desde labels Chatwoot — IA no responde")
+                    return
+        except Exception as e:
+            log.warning(f"[Conv {conversation_id}] Error recuperando estado de Chatwoot: {e}")
+
+    if state is None:
+        is_first_message = True
         state = ConversationState(
             contact_id=contact_id,
             contact_name=contact_name or None,
@@ -505,8 +679,7 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
         # Marcar en Chatwoot que la IA está activa en esta conversación
         await set_custom_attributes(conversation_id, {"ai_status": "ia_activa", "pasar_supervisor": "no"})
 
-    # Enviar saludo inicial SIEMPRE que sea primer mensaje (nueva o reciclada)
-    # El paciente merece un saludo cordial cada vez que inicia contacto
+    # Enviar saludo inicial SOLO si es conversación verdaderamente nueva (sin historial previo)
     if is_first_message:
         saludo = (
             "Gracias por comunicarte con nosotros.\n"
@@ -521,26 +694,39 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
         )
         await send_message(conversation_id, saludo)
         state = await add_message(state, "assistant", saludo)
-        # Guardar el mensaje del usuario en historial antes de retornar
-        if contact_name and not state.contact_name:
-            state.contact_name = contact_name
-        if contact_phone and not state.contact_phone:
-            state.contact_phone = contact_phone
-        state = await add_message(state, "user", combined_message)
-        await save_state(state)
-        # Registrar en ejecuciones para que el watchdog no lo recoja
-        await appointments.registrar_ejecucion(
-            conversation_id=conversation_id,
-            contact_name=contact_name or "",
-            canal=state.canal.value if state.canal else "whatsapp",
-            mensaje_usuario=combined_message[:500],
-            respuesta_agente=saludo[:500],
-            tipo="saludo",
-            cita_creada=False,
-            contact_phone=contact_phone or "",
-        )
-        log.info(f"[Conv {conversation_id}] Saludo inicial enviado — esperando respuesta del paciente")
-        return
+
+        # Si el mensaje inicial tiene contenido sustantivo, continuar procesando
+        # en vez de solo mandar el menú y esperar
+        keywords = ["cita", "costo", "precio", "horario", "dirección", "direccion",
+                     "disponibilidad", "consulta", "información", "informacion",
+                     "detalle", "atender", "atención", "atencion", "agendar",
+                     "reservar", "cuánto", "cuanto", "dónde", "donde"]
+        msg_lower = combined_message.lower()
+        has_question = any(kw in msg_lower for kw in keywords)
+
+        if not has_question:
+            # Mensaje genérico ("hola", emoji, etc.) — solo saludo, esperar respuesta
+            if contact_name and not state.contact_name:
+                state.contact_name = contact_name
+            if contact_phone and not state.contact_phone:
+                state.contact_phone = contact_phone
+            state = await add_message(state, "user", combined_message)
+            await save_state(state)
+            await appointments.registrar_ejecucion(
+                conversation_id=conversation_id,
+                contact_name=contact_name or "",
+                canal=state.canal.value if state.canal else "whatsapp",
+                mensaje_usuario=combined_message[:500],
+                respuesta_agente=saludo[:500],
+                tipo="saludo",
+                cita_creada=False,
+                contact_phone=contact_phone or "",
+            )
+            log.info(f"[Conv {conversation_id}] Saludo inicial enviado — esperando respuesta del paciente")
+            return
+
+        # Tiene pregunta clara → mandar saludo + continuar procesando con IA
+        log.info(f"[Conv {conversation_id}] Saludo enviado + mensaje con contenido — procesando con IA")
 
     # Actualizar datos de contacto si tenemos nuevos
     if contact_name and not state.contact_name:
@@ -597,7 +783,7 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
         if not slots:
             hoy_fecha = _hoy_lima()
             alternativa_info = []
-            alternativa_info.append(f"{fecha_ctx}: NO hay horarios disponibles")
+            alternativa_info.append(f"❌ {fecha_ctx}: SIN ESPACIO")
             cursor = fecha_obj + timedelta(days=1)
             dias_buscados = 0
             while dias_buscados < 7:
@@ -610,15 +796,16 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
                             lbl = f"Mañana ({ctx_alt})"
                         else:
                             lbl = ctx_alt.capitalize()
-                        alternativa_info.append(f"Siguiente disponible — {lbl}: {', '.join(s_alt)}")
+                        alternativa_info.append(f"⭐ Siguiente disponible — {lbl}: {', '.join(s_alt[:3])} — OFRECER DIRECTAMENTE con horarios")
                         break
                 cursor += timedelta(days=1)
                 dias_buscados += 1
-            fecha_ctx = "fecha solicitada y alternativa"
+            fecha_ctx = "fecha pedida sin espacio + alternativa (ofrecer alternativa DIRECTAMENTE con horarios)"
             slots = alternativa_info
     else:
         # Sin fecha detectada: PRIORIZAR HOY → MAÑANA → después
         hoy_fecha = _hoy_lima()
+        from config import TURNO_MANANA, TURNO_TARDE
         slots_info = []
         dias_revisados = 0
         dias_ofrecidos = 0
@@ -628,19 +815,49 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
                 n_citas = await appointments.contar_citas_dia(fecha_cursor)
                 s, ctx = await _get_slots_for_date(fecha_cursor)
                 if fecha_cursor == hoy_fecha:
-                    label = f"⭐ Hoy ({ctx}) — PRIORIDAD, ofrecer primero"
+                    dia_label = f"Hoy ({ctx})"
                 elif fecha_cursor == hoy_fecha + timedelta(days=1):
-                    label = f"⭐ Mañana ({ctx}) — PRIORIDAD, ofrecer si hoy está lleno"
+                    dia_label = f"Mañana ({ctx})"
                 else:
-                    label = f"{ctx.capitalize()} — solo ofrecer si hoy y mañana están llenos"
-                if s and n_citas < CITAS_DIA_LLENO:
-                    slots_info.append(f"{label}: {', '.join(s)}")
+                    dia_label = ctx.capitalize()
+
+                if s:
+                    # Hay slots reales disponibles — SIEMPRE ofrecerlos
+                    hora_corte = f"{TURNO_TARDE[0]}"  # "14:00"
+                    slots_manana = [h for h in s if h < hora_corte]
+                    slots_tarde = [h for h in s if h >= hora_corte]
+                    is_sabado = fecha_cursor.weekday() == 5
+
+                    partes = []
+                    if slots_manana:
+                        n_m = len(slots_manana)
+                        urg_m = f" ⚠️ SOLO {n_m} cupo(s)" if n_m <= 3 else ""
+                        partes.append(f"Mañana ({n_m} cupos{urg_m}): {', '.join(slots_manana[:3])}")
+                    else:
+                        partes.append("Mañana: SIN ESPACIO")
+                    if not is_sabado:
+                        if slots_tarde:
+                            n_t = len(slots_tarde)
+                            urg_t = f" ⚠️ SOLO {n_t} cupo(s)" if n_t <= 3 else ""
+                            partes.append(f"Tarde ({n_t} cupos{urg_t}): {', '.join(slots_tarde[:3])}")
+                        else:
+                            partes.append("Tarde: SIN ESPACIO")
+
+                    # Solo un turno tiene cupos → indicar cuál ofrecer
+                    if slots_manana and not slots_tarde and not is_sabado:
+                        instruccion = "Solo turno mañana disponible — ofrecer directo sin preguntar mañana/tarde"
+                    elif slots_tarde and not slots_manana:
+                        instruccion = "Solo turno tarde disponible — ofrecer directo sin preguntar mañana/tarde"
+                    else:
+                        instruccion = "Ambos turnos disponibles — preguntar preferencia"
+
+                    slots_info.append(f"⭐ {dia_label}: {' | '.join(partes)} [{instruccion}]")
                     dias_ofrecidos += 1
-                elif not s or n_citas >= CITAS_DIA_LLENO:
-                    slots_info.append(f"{label}: DÍA CARGADO, no ofrecer proactivamente")
+                else:
+                    slots_info.append(f"❌ {dia_label}: SIN ESPACIO — no ofrecer, pasar al siguiente día")
             fecha_cursor += timedelta(days=1)
             dias_revisados += 1
-        fecha_ctx = "próximos días disponibles (PRIORIZAR hoy y mañana)"
+        fecha_ctx = "disponibilidad (ofrecer directamente CON horarios, no hacer preguntas innecesarias)"
         slots = slots_info
 
     # CHECK 1: Re-verificar handoff antes de generar respuesta (pudo activarse durante debounce/slots)
@@ -671,6 +888,11 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
         fecha_contexto=fecha_ctx,
         citas_existentes=citas_existentes,
     )
+
+    # Sin crédito OpenAI → no responder para no marear al paciente
+    if ai_response is None:
+        log.critical(f"[Conv {conversation_id}] IA sin crédito — NO se responde al paciente")
+        return
 
     # Verificar si la IA detecto una cita completa
     cita_data = extract_appointment_json(ai_response)
@@ -863,7 +1085,14 @@ async def _debounce_fire(conversation_id: int):
     try:
         await _process_accumulated_messages(conversation_id, payloads)
     except Exception as e:
-        log.error(f"[Conv {conversation_id}] Error procesando mensajes acumulados: {e}")
+        log.error(f"[Conv {conversation_id}] Error procesando mensajes acumulados: {e} — retry en 10s")
+        # Retry una vez después de 10s (cubre DNS timeouts temporales)
+        try:
+            await asyncio.sleep(10)
+            await _process_accumulated_messages(conversation_id, payloads)
+            log.info(f"[Conv {conversation_id}] Retry exitoso")
+        except Exception as e2:
+            log.error(f"[Conv {conversation_id}] Retry también falló: {e2} — watchdog lo recogerá")
     finally:
         _processing.discard(conversation_id)
 
@@ -919,17 +1148,21 @@ async def webhook_chatwoot(request: Request):
             log.info(f"[Conv {conv_id}] Labels changed: added={added_labels}, removed={removed_labels}")
 
             # Label "pasar_supervisor", "supervisor" o "cita_agendada" agregado → activar handoff
-            if ("pasar_supervisor" in added_labels or "supervisor" in added_labels or "cita_agendada" in added_labels) and state and not state.handoff:
-                state.handoff = True
-                state.handoff_at = datetime.now().isoformat()
-                state.cita_creada = "cita_agendada" in added_labels
-                await save_state(state)
-                ai_status = "cita_agendada" if "cita_agendada" in added_labels else "supervisor"
-                await set_custom_attributes(conv_id, {"ai_status": ai_status, "pasar_supervisor": "si"})
-                await appointments.cerrar_seguimiento(conv_id)
-                await appointments.registrar_alerta(tipo="supervisor", conversation_id=conv_id, detalle="Handoff activado via label")
-                log.info(f"[Conv {conv_id}] Handoff activado via LABEL — IA pausada")
-                return {"ok": True, "action": "handoff_activated_via_label"}
+            handoff_labels = {"pasar_supervisor", "supervisor", "cita_agendada"}
+            if handoff_labels & set(added_labels):
+                if state is None:
+                    state = ConversationState(contact_id=0, conversation_id=conv_id)
+                if not state.handoff:
+                    state.handoff = True
+                    state.handoff_at = datetime.now().isoformat()
+                    state.cita_creada = "cita_agendada" in added_labels
+                    await save_state(state)
+                    ai_status = "cita_agendada" if "cita_agendada" in added_labels else "supervisor"
+                    await set_custom_attributes(conv_id, {"ai_status": ai_status, "pasar_supervisor": "si"})
+                    await appointments.cerrar_seguimiento(conv_id)
+                    await appointments.registrar_alerta(tipo="supervisor", conversation_id=conv_id, detalle="Handoff activado via label")
+                    log.info(f"[Conv {conv_id}] Handoff activado via LABEL — IA pausada")
+                    return {"ok": True, "action": "handoff_activated_via_label"}
 
             # Label "devolver_ia" agregado → desactivar handoff
             if "devolver_ia" in added_labels and state and state.handoff:
@@ -961,14 +1194,17 @@ async def webhook_chatwoot(request: Request):
         # --- Detectar cambio en custom attribute pasar_supervisor ---
         pasar = custom_attrs.get("pasar_supervisor")
         if pasar:
-            if pasar == "si" and state and not state.handoff:
-                state.handoff = True
-                state.handoff_at = datetime.now().isoformat()
-                await save_state(state)
-                await set_custom_attributes(conv_id, {"ai_status": "supervisor", "pasar_supervisor": "si"})
-                await appointments.cerrar_seguimiento(conv_id)
-                log.info(f"[Conv {conv_id}] Equipo activó 'Pasar supervisor' — IA pausada")
-                return {"ok": True, "action": "handoff_activated"}
+            if pasar == "si":
+                if state is None:
+                    state = ConversationState(contact_id=0, conversation_id=conv_id)
+                if not state.handoff:
+                    state.handoff = True
+                    state.handoff_at = datetime.now().isoformat()
+                    await save_state(state)
+                    await set_custom_attributes(conv_id, {"ai_status": "supervisor", "pasar_supervisor": "si"})
+                    await appointments.cerrar_seguimiento(conv_id)
+                    log.info(f"[Conv {conv_id}] Equipo activó 'Pasar supervisor' — IA pausada")
+                    return {"ok": True, "action": "handoff_activated"}
             elif pasar == "no" and state and state.handoff:
                 state.handoff = False
                 state.handoff_at = None

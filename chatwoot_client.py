@@ -161,6 +161,20 @@ async def get_conversation_messages(conversation_id: int, limit: int = 5) -> lis
         return msgs[:limit]
 
 
+async def get_conversation_messages_all(conversation_id: int, limit: int = 20) -> list[dict]:
+    """Obtiene mensajes de una conversación (orden cronológico, más antiguo primero)."""
+    url = f"{BASE}/conversations/{conversation_id}/messages"
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(url, headers=HEADERS)
+        if resp.status_code >= 400:
+            return []
+        msgs = resp.json().get("payload", [])
+        if isinstance(msgs, dict):
+            msgs = msgs.get("messages", [])
+        # Retornar en orden cronológico (más antiguo primero), limitado
+        return msgs[-limit:] if len(msgs) > limit else msgs
+
+
 async def toggle_status(conversation_id: int, status: str = "open"):
     """Cambia el status de una conversacion (open, pending, resolved, snoozed)."""
     url = f"{BASE}/conversations/{conversation_id}/toggle_status"
