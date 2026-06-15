@@ -439,10 +439,10 @@ def parse_fecha_from_text(text: str) -> date | None:
     hoy = _hoy_lima()
     text_lower = text.lower().strip()
 
-    # Hoy / mañana
+    # Hoy / mañana (pero NO "en la mañana", "de la mañana", "por la mañana" que es turno, no tomorrow)
     if "hoy" in text_lower:
         return hoy
-    if "mañana" in text_lower:
+    if "mañana" in text_lower and not re.search(r"(en |de |por )la mañana", text_lower):
         return hoy + timedelta(days=1)
 
     meses = {
