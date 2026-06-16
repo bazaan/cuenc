@@ -68,12 +68,26 @@ async def _followup_loop():
             for seg in pendientes:
                 conv_id = seg["conversation_id"]
 
-                # Safety net: verificar handoff en Redis + Chatwoot antes de enviar
+                # Safety net 1: verificar handoff en Redis + Chatwoot
                 state = await get_state(conv_id)
                 cw_attrs = await get_custom_attributes(conv_id)
                 is_handoff = (state and (state.handoff or state.cita_creada)) or cw_attrs.get("pasar_supervisor") == "si"
                 if is_handoff:
                     log.info(f"[Seguimiento] Conv {conv_id} en handoff/cita_creada — cerrando seguimiento")
+                    await appointments.cerrar_seguimiento(conv_id)
+                    continue
+
+                # Safety net 2: verificar en BD si ya hay cita para esta conversación
+                cita_existente = await appointments.buscar_cita_por_conversation(conv_id)
+                if cita_existente:
+                    log.info(f"[Seguimiento] Conv {conv_id} ya tiene cita en BD (#{cita_existente}) — cerrando seguimiento")
+                    await appointments.cerrar_seguimiento(conv_id)
+                    continue
+
+                # Safety net 3: verificar labels de Chatwoot
+                cw_labels = await get_conversation_labels(conv_id)
+                if "cita_agendada" in cw_labels:
+                    log.info(f"[Seguimiento] Conv {conv_id} tiene label cita_agendada — cerrando seguimiento")
                     await appointments.cerrar_seguimiento(conv_id)
                     continue
 
@@ -439,9 +453,11 @@ def parse_fecha_from_text(text: str) -> date | None:
     hoy = _hoy_lima()
     text_lower = text.lower().strip()
 
-    # Hoy / mañana (pero NO "en la mañana", "de la mañana", "por la mañana" que es turno, no tomorrow)
+    # Hoy / mañana / pasado mañana
     if "hoy" in text_lower:
         return hoy
+    if "pasado mañana" in text_lower:
+        return hoy + timedelta(days=2)
     if "mañana" in text_lower and not re.search(r"(en |de |por )la mañana", text_lower):
         return hoy + timedelta(days=1)
 
@@ -898,10 +914,17 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
     cita_data = extract_appointment_json(ai_response)
     clean_text = clean_response(ai_response)
 
-    # Prevenir citas duplicadas: si ya se creó una cita en esta conversación, ignorar
-    if cita_data and state.cita_creada:
-        log.warning(f"[Conv {conversation_id}] CITA DUPLICADA ignorada — ya existe cita en esta conversación")
-        cita_data = None
+    # Prevenir citas duplicadas: verificar Redis Y base de datos
+    if cita_data:
+        if state.cita_creada:
+            log.warning(f"[Conv {conversation_id}] CITA DUPLICADA ignorada (Redis) — ya existe cita en esta conversación")
+            cita_data = None
+        else:
+            # Verificar también en BD por si Redis perdió el estado
+            cita_existente_bd = await appointments.buscar_cita_por_conversation(conversation_id)
+            if cita_existente_bd:
+                log.warning(f"[Conv {conversation_id}] CITA DUPLICADA ignorada (BD #{cita_existente_bd}) — ya existe en base de datos")
+                cita_data = None
 
     if cita_data:
         try:

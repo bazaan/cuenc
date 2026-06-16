@@ -144,6 +144,16 @@ async def init_db():
         log.info("DB inicializada: tablas citas y ejecuciones listas")
 
 
+async def buscar_cita_por_conversation(conversation_id: int) -> int | None:
+    """Busca si ya existe una cita activa para esta conversación. Retorna cita ID o None."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT id FROM citas WHERE conversation_id = $1 AND estado NOT IN ('cancelada') LIMIT 1",
+            conversation_id,
+        )
+
+
 async def crear_cita(cita: Cita) -> int | None:
     """Crea una cita y retorna el ID. Previene duplicados por conversation_id Y por fecha+hora."""
     pool = await get_pool()
@@ -158,6 +168,16 @@ async def crear_cita(cita: Cita) -> int | None:
             if existing:
                 log.warning(f"Cita duplicada bloqueada: conv {cita.conversation_id} ya tiene cita #{existing}")
                 return existing
+
+        # Validar que sábado no acepte citas por la tarde
+        if cita.fecha.weekday() == 5 and cita.hora.hour >= 12:
+            log.warning(f"SÁBADO TARDE BLOQUEADO: {cita.fecha} {cita.hora} — sábados solo mañana")
+            return None
+
+        # Validar que domingo no acepte citas
+        if cita.fecha.weekday() == 6:
+            log.warning(f"DOMINGO BLOQUEADO: {cita.fecha} — no se atiende domingos")
+            return None
 
         # Verificar turno bloqueado antes de crear
         turno = "manana" if cita.hora.hour < 12 else "tarde"
@@ -243,11 +263,11 @@ async def get_slots_ocupados(fecha: date) -> list[time]:
 
 
 async def contar_citas_dia(fecha: date) -> int:
-    """Retorna el número de citas activas (no canceladas) de un día."""
+    """Retorna el número de citas reales (excluyendo canceladas y slots bloqueados OCUPADO)."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         return await conn.fetchval(
-            "SELECT COUNT(*) FROM citas WHERE fecha = $1 AND estado NOT IN ('cancelada')",
+            "SELECT COUNT(*) FROM citas WHERE fecha = $1 AND estado NOT IN ('cancelada') AND UPPER(nombre_paciente) NOT IN ('OCUPADO', 'BLOQUEADO')",
             fecha,
         )
 

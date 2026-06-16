@@ -78,6 +78,11 @@ FLUJO DE CONVERSACIÓN:
 CITAS EXISTENTES:
 Si el contexto muestra citas del paciente, NO crees duplicado. Confirma: "Veo que tiene cita para [fecha] a las [hora]. ¿Todo en orden o necesita cambiarla?"
 
+INTERCONSULTA / CONSULTA VIRTUAL:
+Cuando el paciente pida interconsulta, consulta virtual, evaluación por referencia de otro médico, o mencione "interconsulta":
+→ Responde: "Para la interconsulta, el costo es S/50. El paciente debe presentar una *placa simple de tórax* y la *hoja de interconsulta*, ambos documentos en físico. ¿Desea agendar una cita para la interconsulta?"
+→ Si quiere agendar, seguir el flujo normal de agendamiento.
+
 DERIVACIONES — usar [SUPERVISOR]motivo[/SUPERVISOR]:
 - Antiguo + control → "Para su control, una asesora le coordinará. Un momento 😊"
 - Exámenes / placas / resultados → "Una asesora le coordinará un horario especial. Un momento 😊"
@@ -317,6 +322,57 @@ def extract_appointment_json(text: str) -> dict | None:
             log.warning(f"Hora invalida en JSON cita: {hora}")
             return None
         return data
+
+    # FALLBACK: si no hay [CITA_JSON] pero la respuesta parece confirmar una cita,
+    # intentar extraer datos del texto para no perder la cita
+    import re as _re
+    confirmation_patterns = [
+        r'(?:tu |su )?cita queda para',
+        r'queda agendad[ao]',
+        r'cita para el',
+        r'le confirmo.*cita',
+    ]
+    has_confirmation = any(_re.search(p, text.lower()) for p in confirmation_patterns)
+
+    if has_confirmation:
+        log.warning(f"[CITA FALLBACK] Respuesta parece confirmar cita pero sin [CITA_JSON]. Texto: {text[:200]}")
+        # Intentar extraer fecha y hora del texto
+        # Buscar patrones como "martes 16 de junio a las 3:00 PM" o "lunes 15 a las 9:20 AM"
+        fecha_match = _re.search(r'(\d{1,2})\s*(?:de\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)', text.lower())
+        hora_match = _re.search(r'(\d{1,2}:\d{2})\s*(AM|PM|am|pm|a\.m\.|p\.m\.)', text)
+        nombre_match = _re.search(r'(?:Perfecto|Listo)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*)', text)
+
+        if fecha_match and hora_match:
+            meses = {"enero":1,"febrero":2,"marzo":3,"abril":4,"mayo":5,"junio":6,
+                     "julio":7,"agosto":8,"septiembre":9,"octubre":10,"noviembre":11,"diciembre":12}
+            dia = int(fecha_match.group(1))
+            mes = meses.get(fecha_match.group(2), 1)
+            from datetime import date as _date
+            try:
+                year = _date.today().year
+                fecha_obj = _date(year, mes, dia)
+                hora_raw = hora_match.group(1)
+                ampm = hora_match.group(2).upper().replace('.','')
+                h, m = map(int, hora_raw.split(':'))
+                if 'PM' in ampm and h < 12:
+                    h += 12
+                if 'AM' in ampm and h == 12:
+                    h = 0
+                hora_str = f"{h:02d}:{m:02d}"
+                nombre = nombre_match.group(1) if nombre_match else ""
+
+                log.warning(f"[CITA FALLBACK] Extraido: nombre={nombre} fecha={fecha_obj} hora={hora_str}")
+                return {
+                    "nombre": nombre,
+                    "fecha": fecha_obj.isoformat(),
+                    "hora": hora_str,
+                    "motivo": "Consulta neumología",
+                    "telefono": "",
+                    "_fallback": True,
+                }
+            except (ValueError, TypeError) as e:
+                log.warning(f"[CITA FALLBACK] Error parseando fecha/hora: {e}")
+
     return None
 
 
