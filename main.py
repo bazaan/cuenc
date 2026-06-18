@@ -849,15 +849,11 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
                         n_m = len(slots_manana)
                         urg_m = f" ⚠️ SOLO {n_m} cupo(s)" if n_m <= 3 else ""
                         partes.append(f"Mañana ({n_m} cupos{urg_m}): {', '.join(slots_manana[:3])}")
-                    else:
-                        partes.append("Mañana: SIN ESPACIO")
-                    if not is_sabado:
-                        if slots_tarde:
-                            n_t = len(slots_tarde)
-                            urg_t = f" ⚠️ SOLO {n_t} cupo(s)" if n_t <= 3 else ""
-                            partes.append(f"Tarde ({n_t} cupos{urg_t}): {', '.join(slots_tarde[:3])}")
-                        else:
-                            partes.append("Tarde: SIN ESPACIO")
+                    if not is_sabado and slots_tarde:
+                        n_t = len(slots_tarde)
+                        urg_t = f" ⚠️ SOLO {n_t} cupo(s)" if n_t <= 3 else ""
+                        partes.append(f"Tarde ({n_t} cupos{urg_t}): {', '.join(slots_tarde[:3])}")
+                    # NO mostrar "SIN ESPACIO" por turno — confunde a GPT. Solo mostrar los turnos que SÍ tienen cupo.
 
                     # Solo un turno tiene cupos → indicar cuál ofrecer
                     if slots_manana and not slots_tarde and not is_sabado:
@@ -928,7 +924,22 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
 
     if cita_data:
         try:
-            nombre = cita_data.get("nombre", state.contact_name or "")
+            nombre = cita_data.get("nombre", "")
+            # Si el fallback no capturó nombre, buscar en state, contacto o mensajes previos
+            if not nombre.strip():
+                nombre = state.contact_name or contact_name or ""
+            # Si aún vacío y es fallback, buscar nombre en los últimos mensajes del usuario
+            if not nombre.strip() and cita_data.get("_fallback"):
+                for msg in reversed(state.messages):
+                    if msg.get("role") == "user":
+                        txt = msg["content"].strip()
+                        # Buscar líneas que parezcan nombre (2+ palabras capitalizadas, sin números)
+                        import re as _re
+                        name_match = _re.match(r'^([A-ZÁÉÍÓÚÑa-záéíóúñ]{2,}\s+[A-ZÁÉÍÓÚÑa-záéíóúñ\s]{2,})$', txt.split('\n')[0])
+                        if name_match and not any(c.isdigit() for c in name_match.group(1)):
+                            nombre = name_match.group(1).strip()
+                            log.info(f"[Conv {conversation_id}] Nombre extraido de historial: {nombre}")
+                            break
             telefono = cita_data.get("telefono", state.contact_phone or "")
             fecha = date.fromisoformat(cita_data["fecha"])
             hora_parts = cita_data["hora"].split(":")
