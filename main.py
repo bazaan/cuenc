@@ -1032,6 +1032,25 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
 
     # Detectar escalamiento a supervisor (IA decidió pasar a humano)
     supervisor_motivo = extract_supervisor_tag(ai_response)
+
+    # Safety net: detectar escalación implícita sin tags [SUPERVISOR]
+    if not supervisor_motivo and not state.handoff and not cita_data:
+        _lower = ai_response.lower()
+        _handoff_phrases = [
+            "le comunico con una asesora",
+            "le comunico con un asesor",
+            "le paso con una asesora",
+            "le paso con un asesor",
+            "una asesora le",
+            "un asesor le",
+            "le brindará los detalles",
+            "podrá confirmarle si el doctor",
+            "podrá orientarle mejor",
+        ]
+        if any(phrase in _lower for phrase in _handoff_phrases):
+            supervisor_motivo = "Escalación implícita detectada (IA derivó sin tags)"
+            log.warning(f"[Conv {conversation_id}] SAFETY NET: IA escaló sin [SUPERVISOR] tags. Respuesta: {ai_response[:200]}")
+
     if supervisor_motivo and not state.handoff:
         state.handoff = True
         state.handoff_at = datetime.now().isoformat()
@@ -2047,8 +2066,8 @@ async def dashboard_page():
 
 @app.get("/panel")
 async def panel():
-    """Panel legacy."""
-    return FileResponse(STATIC_DIR / "panel.html")
+    """Panel legacy — redirige al dashboard completo."""
+    return RedirectResponse(url="/dashboard")
 
 
 # ─── Health ───

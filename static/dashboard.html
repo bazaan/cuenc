@@ -570,6 +570,9 @@
         <div class="stat-card s-confirmed"><div class="label">Confirmadas</div><div class="value" id="stConfirmed">-</div></div>
         <div class="stat-card s-attended"><div class="label">Atendidas</div><div class="value" id="stAttended">-</div></div>
       </div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+        <button class="btn-sm" style="background:var(--primary);color:white;padding:8px 18px;font-size:13px;border-radius:8px;border:none;cursor:pointer;font-family:inherit;font-weight:600" onclick="abrirNuevaCitaAgenda()">+ Nueva Cita</button>
+      </div>
       <div id="citasWrapper"><div class="loading">Cargando...</div></div>
     </div>
 
@@ -951,6 +954,22 @@ function abrirEditarCita(id) {
   document.getElementById('cmCanal').value = c.canal || 'whatsapp';
   document.getElementById('cmNotas').value = c.notas_equipo || '';
   document.getElementById('cmDeleteBtn').style.display = '';
+  document.getElementById('calModal').style.display = '';
+}
+
+function abrirNuevaCitaAgenda() {
+  document.getElementById('cmEditId').value = '';
+  document.getElementById('calModalTitle').textContent = 'Nueva Cita';
+  document.getElementById('cmNombre').value = '';
+  document.getElementById('cmTelefono').value = '';
+  document.getElementById('cmFecha').value = fechaActual;
+  document.getElementById('cmHora').value = '09:00';
+  document.getElementById('cmMotivo').value = '';
+  document.getElementById('cmTipoPaciente').value = '';
+  document.getElementById('cmEstado').value = 'pendiente';
+  document.getElementById('cmCanal').value = 'web';
+  document.getElementById('cmNotas').value = '';
+  document.getElementById('cmDeleteBtn').style.display = 'none';
   document.getElementById('calModal').style.display = '';
 }
 
@@ -1358,9 +1377,16 @@ async function calFetchCitas(days) {
 }
 
 function calMinToY(h, m) {
-  const base = CAL_START_H * 60 + CAL_START_M;
   const cur = h * 60 + m;
-  return ((cur - base) / CAL_SLOT_MIN) * CAL_SLOT_PX;
+  const mStart = TURNO_MANANA.sh * 60 + TURNO_MANANA.sm;
+  const mEnd = TURNO_MANANA.eh * 60 + TURNO_MANANA.em;
+  const tStart = TURNO_TARDE.sh * 60 + TURNO_TARDE.sm;
+  const mSlots = Math.floor((mEnd - mStart) / CAL_SLOT_MIN) + 1;
+  if (cur <= mEnd) {
+    return ((cur - mStart) / CAL_SLOT_MIN) * CAL_SLOT_PX;
+  } else {
+    return (mSlots + (cur - tStart) / CAL_SLOT_MIN) * CAL_SLOT_PX;
+  }
 }
 
 async function calRender() {
