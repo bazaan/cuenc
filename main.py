@@ -1107,8 +1107,15 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
     paciente_interesado = any(p in msg_lower for p in palabras_interes) or bool(fecha_detectada)
 
     # Tracking de seguimiento (resetea timer si usuario responde, cierra si cita creada)
-    # NO crear seguimiento si la conversacion esta en handoff (supervisor tomó control)
-    if not state.handoff:
+    # NO INSISTIR: si la IA dio un cierre/despedida o el paciente declinó/agradeció,
+    # cerrar el seguimiento para no enviar follow-ups a quien ya no quiere agendar.
+    _resp_lower = (clean_text or "").lower()
+    _es_cierre = ("estamos para ayudarle" in _resp_lower) or ("cuando guste nos escribe" in _resp_lower)
+    if _es_cierre:
+        await appointments.cerrar_seguimiento(conversation_id)
+        log.info(f"[Conv {conversation_id}] Cierre/declinación detectada — seguimiento cerrado (no insistir)")
+    elif not state.handoff:
+        # NO crear seguimiento si la conversacion esta en handoff (supervisor tomó control)
         await appointments.upsert_seguimiento(
             conversation_id=conversation_id,
             contact_name=state.contact_name or contact_name or "",
