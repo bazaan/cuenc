@@ -193,9 +193,6 @@ Asistente: "El pago se realiza antes de ingresar al consultorio 😊"
 
 
 PRECIO_MESSAGE = """Costo de consulta: S/70.00
-Interconsulta (referencia de otro medico): S/50.00
-Vacuna contra la influenza: S/80.00
-Panel de alergias respiratorias: S/170.00
 Examenes de laboratorio: S/100.00 a S/200.00
 
 => Aceptamos efectivo, Yape, tarjetas y transferencias.
