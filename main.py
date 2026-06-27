@@ -872,6 +872,22 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
         fecha_ctx = "disponibilidad (ofrecer directamente CON horarios, no hacer preguntas innecesarias)"
         slots = slots_info
 
+    # Si el paciente pidió una hora puntual que YA está ocupada (pudo tomarse desde
+    # una oferta anterior), avisar al modelo para que NO la agende y ofrezca las libres.
+    hora_pedida_ocupada = None
+    _f_ped = fecha_detectada or (date.fromisoformat(state.fecha_elegida) if state.fecha_elegida else None)
+    _h_ped = hora_detectada or state.hora_elegida  # "HH:MM"
+    if _f_ped and _h_ped:
+        try:
+            from datetime import time as _time
+            _p = str(_h_ped).split(":")
+            _ht = _time(int(_p[0]), int(_p[1]))
+            if _ht in await appointments.get_slots_ocupados(_f_ped):
+                hora_pedida_ocupada = f"{_ht.hour:02d}:{_ht.minute:02d}"
+                log.info(f"[Conv {conversation_id}] Hora pedida {hora_pedida_ocupada} para {_f_ped} YA OCUPADA — se avisa al modelo")
+        except Exception:
+            pass
+
     # CHECK 1: Re-verificar handoff antes de generar respuesta (pudo activarse durante debounce/slots)
     state = await get_state(conversation_id)
     if state and state.handoff:
@@ -899,6 +915,7 @@ async def _process_accumulated_messages(conversation_id: int, payloads: list[dic
         slots_disponibles=slots,
         fecha_contexto=fecha_ctx,
         citas_existentes=citas_existentes,
+        hora_pedida_ocupada=hora_pedida_ocupada,
     )
 
     # Sin crédito OpenAI → no responder para no marear al paciente

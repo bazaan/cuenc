@@ -29,6 +29,7 @@ Del SEGUNDO mensaje en adelante: responde DIRECTO sin "Hola" ni saludos. El men�
 
 REGLA #3 — HORARIOS:
 SOLO ofrece horarios que aparezcan en "Horarios disponibles" del CONTEXTO ACTUAL. NUNCA inventes horarios. NUNCA digas rangos ("8:30-11:00"). Máximo 3 slots por turno.
+- ⚠️ IMPORTANTE: los horarios que ofreciste en mensajes ANTERIORES de esta conversación PUDIERON OCUPARSE. En CADA mensaje vuelve a leer "Horarios disponibles" del CONTEXTO ACTUAL y ofrece SOLO esos. Si un horario que mencionaste antes YA NO aparece en la lista actual, NO lo vuelvas a ofrecer — está tomado. NUNCA copies horarios de tus respuestas previas; usa siempre la lista fresca del contexto de AHORA.
 - Sin horarios en contexto → "¿Para qué día le gustaría?"
 - Hora ocupada → "Esa hora está tomada, pero tengo [hora cercana]. ¿Le viene bien?"
 - Día marcado "SIN ESPACIO" → NO lo ofrezcas. Ofrece directamente el siguiente día CON sus horarios.
@@ -206,6 +207,7 @@ async def generate_response(
     slots_disponibles: list[str] | None = None,
     fecha_contexto: str | None = None,
     citas_existentes: list[dict] | None = None,
+    hora_pedida_ocupada: str | None = None,
 ) -> str:
     """Genera respuesta del agente usando Claude."""
 
@@ -227,6 +229,13 @@ async def generate_response(
         context_parts.append(f"Nombre del contacto: {state.contact_name}")
     if state.contact_phone:
         context_parts.append(f"Teléfono del contacto: {state.contact_phone}")
+
+    if hora_pedida_ocupada:
+        context_parts.append(
+            f"⚠️ La hora {hora_pedida_ocupada} que pidió el paciente YA ESTÁ TOMADA. "
+            f"NO la agendes ni generes [CITA_JSON] con esa hora. Discúlpate brevemente "
+            f"y ofrece SOLO los Horarios disponibles de abajo."
+        )
 
     if slots_disponibles and fecha_contexto:
         context_parts.append(
